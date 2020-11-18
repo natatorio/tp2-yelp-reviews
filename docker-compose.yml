@@ -1,0 +1,48 @@
+version: '3'
+services:
+  rabbitmq:
+      image: rabbitmq:3-management-alpine
+      container_name: rabbitmq
+      ports:
+        - 15672:15672
+      networks:
+        - my_network
+
+  server:
+    container_name: server
+    build:
+      context: server/
+    entrypoint: python3 main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SERVER_IP=server
+      - SERVER_PORT=12345
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+    networks:
+      - my_network
+    depends_on:
+      - rabbitmq
+
+  client:
+    container_name: client
+    build:
+      context: client/
+    entrypoint: python3 main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SERVER_IP=server
+      - SERVER_PORT=12345
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+    networks:
+      - my_network
+    volumes:
+      - ./data:/data:rw
+    depends_on:
+      - rabbitmq
+
+networks:
+  my_network:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24
