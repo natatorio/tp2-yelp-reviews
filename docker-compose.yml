@@ -26,8 +26,9 @@ services:
   client:
     container_name: client
     build:
-      context: client/
-    entrypoint: python3 main.py
+      context: /home/pato/Desktop/distribuidos
+      dockerfile: tp2-yelp-reviews/client/Dockerfile
+    entrypoint: python3 client/main.py
     environment:
       - PYTHONUNBUFFERED=1
       - SERVER_IP=server
@@ -36,7 +37,7 @@ services:
     networks:
       - my_network
     volumes:
-      - ./data:/data:rw
+      - ../data:/data:rw
     depends_on:
       - rabbitmq
 
