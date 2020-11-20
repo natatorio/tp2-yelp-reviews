@@ -8,20 +8,31 @@ services:
       networks:
         - my_network
 
-  server:
-    container_name: server
+  router:
+    container_name: router
     build:
-      context: server/
+      context: router/
     entrypoint: python3 main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - SERVER_IP=server
-      - SERVER_PORT=12345
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
     networks:
       - my_network
     depends_on:
       - rabbitmq
+
+  users:
+    container_name: users
+    build:
+      context: users/
+    entrypoint: python3 main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+    networks:
+      - my_network
+    depends_on:
+      - router
 
   client:
     container_name: client
@@ -31,8 +42,6 @@ services:
     entrypoint: python3 client/main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - SERVER_IP=server
-      - SERVER_PORT=12345
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
     networks:
       - my_network

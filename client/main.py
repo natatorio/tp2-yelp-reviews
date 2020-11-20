@@ -6,7 +6,7 @@ import json
 REVIEWS_DATASET_FILEPATH = "data/yelp_academic_dataset_review.json"
 BUSINESS_DATASET_FILEPATH = "data/yelp_academic_dataset_business.json"
 CHUNK_SIZE = 4 * 1024
-MAX_REVIEWS = 6
+MAX_REVIEWS = 1000
 
 def main():
     amqp_url = os.environ['AMQP_URL']
@@ -14,6 +14,7 @@ def main():
     connection = pika.BlockingConnection(parameters)
     channel = connection.channel()
     channel.exchange_declare(exchange='data', exchange_type='direct')
+    time.sleep(2)
     with open(REVIEWS_DATASET_FILEPATH, 'r') as f:
         review_count = 0
         lines = f.readlines(CHUNK_SIZE)
@@ -24,7 +25,7 @@ def main():
             review_count += len(reviews)
             message = json.dumps(reviews)
             channel.basic_publish(exchange='data', routing_key="review", body=message)
-    time.sleep(5)
+    channel.close()
     connection.close()
 
 
