@@ -10,20 +10,24 @@ class Router:
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
         self.channel.exchange_declare(exchange='data', exchange_type='direct')
-        result = self.channel.queue_declare(queue='', durable=True)
-        queue_name = result.method.queue
+        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='review')
-        self.channel.basic_consume(queue=queue_name, on_message_callback=self.receive_data, auto_ack=True)
+        self.reviewsTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route, auto_ack=True)
 
-    def start_routing(self):
+        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='END')
+        self.channel.basic_consume(queue=queue_name, on_message_callback=self.stop, auto_ack=True)
+
+    def run(self):
         try:
             self.channel.start_consuming()
         except KeyboardInterrupt:
             self.channel.stop_consuming()
-        self.channel.close()
-        self.connection.close()
+        finally:
+            self.channel.close()
+            self.connection.close()
 
-    def receive_data(self, ch, method, properties, body):
+    def route(self, ch, method, properties, body):
         reviews = json.loads(body)
         ch.exchange_declare(exchange='reviews', exchange_type='direct')
         funny = [{'funny':r['funny'], 'business_id':r['business_id']} for r in reviews]
@@ -37,8 +41,17 @@ class Router:
         ch.basic_publish(exchange='reviews', routing_key="stars5", body=json.dumps(stars5))
         ch.basic_publish(exchange='reviews', routing_key="histogram", body=json.dumps(histogram))
 
+    def stop(self, ch, method, props, body):
+        map(self.route, self.channel.basic_cancel(self.reviewsTag))
+        self.channel.stop_consuming()
+        self.channel.basic_publish(exchange='reviews', routing_key="comment.END", properties=props, body='')
+        self.channel.basic_publish(exchange='reviews', routing_key="users.END", properties=props, body='')
+        self.channel.basic_publish(exchange='reviews', routing_key="funny.END", properties=props, body='')
+        self.channel.basic_publish(exchange='reviews', routing_key="stars5.END", properties=props, body='')
+        self.channel.basic_publish(exchange='reviews', routing_key="histogram.END", properties=props, body='')
+
 def main():
-    Router().start_routing()
+    Router().run()
 
 if __name__ == '__main__':
     main()

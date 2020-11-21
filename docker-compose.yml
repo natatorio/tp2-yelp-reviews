@@ -11,11 +11,12 @@ services:
   router:
     container_name: router
     build:
-      context: router/
-    entrypoint: python3 main.py
+      context: .
+    entrypoint: python3 router/main.py
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
     networks:
       - my_network
     depends_on:
@@ -24,11 +25,26 @@ services:
   users:
     container_name: users
     build:
-      context: users/
-    entrypoint: python3 main.py
+      context: .
+    entrypoint: python3 users/main.py
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
+  stars5:
+    container_name: stars5
+    build:
+      context: .
+    entrypoint: python3 stars5/main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
     networks:
       - my_network
     depends_on:
