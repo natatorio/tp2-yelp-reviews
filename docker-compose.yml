@@ -36,6 +36,20 @@ services:
     depends_on:
       - router
 
+  histogram:
+    container_name: histogram
+    build:
+      context: .
+    entrypoint: python3 histogram/main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
   business:
     container_name: business
     build:

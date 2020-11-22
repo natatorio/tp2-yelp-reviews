@@ -6,7 +6,7 @@ from consumers import *
 def main():
     querier = FunnyQuerier(keyIds = ['city'], exchange = 'reviews', routingKey = 'funny')
     funnyPerCity = querier.count()
-    topTenFunnyPerCity = sorted(funnyPerCity, key=funnyPerCity.get, reverse=True)[:10]
+    topTenFunnyPerCity = dict([(city, funnyPerCity[city]) for city in sorted(funnyPerCity, key=funnyPerCity.get, reverse=True)[:10]])
 
     print(len(funnyPerCity), " Funny Cities")
     querier.reply(topTenFunnyPerCity)

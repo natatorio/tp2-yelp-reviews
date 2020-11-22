@@ -8,7 +8,7 @@ BUSINESS_DATASET_FILEPATH = "data/yelp_academic_dataset_business.json"
 CHUNK_SIZE = 1024 * 1024
 MAX_REVIEWS = 50000     # Hasta 1 chunk de más
 MAX_BUSINESS = 50000
-QUERIES = 3
+QUERIES = 4
 
 responses = []
 
@@ -26,7 +26,7 @@ def main():
     result = channel.queue_declare(queue='', exclusive=True)
     callback_queue = result.method.queue
     channel.basic_consume(queue=callback_queue, on_message_callback=on_response, auto_ack=True)
-    time.sleep(5)
+    time.sleep(3)
 
     with open(BUSINESS_DATASET_FILEPATH, 'r') as f:
         business_count = 0

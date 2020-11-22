@@ -1,6 +1,7 @@
 import os
 import pika
 import json
+import datetime
 
 class Consumer():
 
@@ -83,6 +84,14 @@ class CounterBy(Consumer):
     def aggregate(self, ch, method, properties, body):
         for elem in json.loads(body):
             key = '-'.join([elem[k] for k in self.keyIds])
+            self.keyCount[key] = self.keyCount.get(key, 0) + 1
+
+class CounterByWeekday(CounterBy):
+
+    def aggregate(self, ch, method, properties, body):
+        for elem in json.loads(body):
+            newElem = {'weekday': datetime.datetime.strptime(elem['date'], '%Y-%m-%d %H:%M:%S').strftime('%A')}
+            key = '-'.join([newElem[k] for k in self.keyIds])
             self.keyCount[key] = self.keyCount.get(key, 0) + 1
 
 class JoinerCounterBy(CounterBy):
