@@ -36,11 +36,39 @@ services:
     depends_on:
       - router
 
+  business:
+    container_name: business
+    build:
+      context: .
+    entrypoint: python3 business/main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
   stars5:
     container_name: stars5
     build:
       context: .
     entrypoint: python3 stars5/main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
+  funny:
+    container_name: funny
+    build:
+      context: .
+    entrypoint: python3 funny/main.py
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5

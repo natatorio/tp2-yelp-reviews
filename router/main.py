@@ -10,13 +10,19 @@ class Router:
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
         self.channel.exchange_declare(exchange='data', exchange_type='direct')
-        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
-        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='review')
-        self.reviewsTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route, auto_ack=True)
+        self.channel.exchange_declare(exchange='reviews', exchange_type='direct')
 
         queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
-        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='END')
+        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='business')
+        self.businessTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route_business, auto_ack=True)
+
+        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='review.END')
         self.channel.basic_consume(queue=queue_name, on_message_callback=self.stop, auto_ack=True)
+
+        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='business.END')
+        self.channel.basic_consume(queue=queue_name, on_message_callback=self.listen_reviews, auto_ack=True)
 
     def run(self):
         try:
@@ -27,9 +33,20 @@ class Router:
             self.channel.close()
             self.connection.close()
 
-    def route(self, ch, method, properties, body):
+    def route_business(self, ch, method, properties, body):
+        business = json.loads(body)
+        businessCities = [{'city':b['city'], 'business_id':b['business_id']} for b in business]
+        ch.basic_publish(exchange='reviews', routing_key="business", body=json.dumps(businessCities))
+
+    def listen_reviews(self, ch, method, props, body):
+        map(self.route_business, self.channel.basic_cancel(self.businessTag))
+        ch.basic_publish(exchange='reviews', routing_key="business.END", properties=props, body='')
+        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='review')
+        self.reviewsTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route_review, auto_ack=True)
+
+    def route_review(self, ch, method, properties, body):
         reviews = json.loads(body)
-        ch.exchange_declare(exchange='reviews', exchange_type='direct')
         funny = [{'funny':r['funny'], 'business_id':r['business_id']} for r in reviews]
         comment = [{'text':r['text'], 'user_id':r['user_id']} for r in reviews]
         users = [{'user_id':r['user_id']} for r in reviews]
@@ -42,7 +59,7 @@ class Router:
         ch.basic_publish(exchange='reviews', routing_key="histogram", body=json.dumps(histogram))
 
     def stop(self, ch, method, props, body):
-        map(self.route, self.channel.basic_cancel(self.reviewsTag))
+        map(self.route_review, self.channel.basic_cancel(self.reviewsTag))
         self.channel.stop_consuming()
         self.channel.basic_publish(exchange='reviews', routing_key="comment.END", properties=props, body='')
         self.channel.basic_publish(exchange='reviews', routing_key="users.END", properties=props, body='')

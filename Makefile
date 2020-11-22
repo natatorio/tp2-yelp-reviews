@@ -18,7 +18,7 @@ rabbit-restart:
 .PHONY: rabbit-restart
 
 docker-compose-up:
-	sudo docker-compose up --build client router users stars5
+	sudo docker-compose up --build client router users stars5 business funny
 .PHONY: docker-compose-up
 
 docker-compose-down:
