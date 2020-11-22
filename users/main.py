@@ -11,7 +11,7 @@ def main():
     counter.forward('reviews', 'stars5', user_count_50)
     counter.forward('reviews', 'comment', user_count_5)
 
-    print(len(user_count_50))
+    print(len(user_count_50), " Users with more than 50 reviews")
     counter.reply({})
     # counter.reply(user_count_50)
     counter.close()

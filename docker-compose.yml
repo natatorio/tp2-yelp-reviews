@@ -78,6 +78,20 @@ services:
     depends_on:
       - router
 
+  comment:
+    container_name: comment
+    build:
+      context: .
+    entrypoint: python3 comment/main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
   funny:
     container_name: funny
     build:

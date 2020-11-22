@@ -6,9 +6,9 @@ import json
 REVIEWS_DATASET_FILEPATH = "data/yelp_academic_dataset_review.json"
 BUSINESS_DATASET_FILEPATH = "data/yelp_academic_dataset_business.json"
 CHUNK_SIZE = 1024 * 1024
-MAX_REVIEWS = 50000     # Hasta 1 chunk de más
-MAX_BUSINESS = 50000
-QUERIES = 4
+MAX_REVIEWS = 5000        # 8019813 Hasta 1 chunk de más
+MAX_BUSINESS = 500000           # 207943
+QUERIES = 5
 
 responses = []
 

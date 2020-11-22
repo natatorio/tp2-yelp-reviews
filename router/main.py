@@ -16,6 +16,9 @@ class Router:
         self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='business')
         self.businessTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route_business, auto_ack=True)
 
+        self.reviewsQueue = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.channel.queue_bind(exchange='data', queue=self.reviewsQueue, routing_key='review')
+
         queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='review.END')
         self.channel.basic_consume(queue=queue_name, on_message_callback=self.stop, auto_ack=True)
@@ -41,9 +44,7 @@ class Router:
     def listen_reviews(self, ch, method, props, body):
         map(self.route_business, self.channel.basic_cancel(self.businessTag))
         ch.basic_publish(exchange='reviews', routing_key="business.END", properties=props, body='')
-        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
-        self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='review')
-        self.reviewsTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route_review, auto_ack=True)
+        self.reviewsTag = self.channel.basic_consume(queue=self.reviewsQueue, on_message_callback=self.route_review, auto_ack=True)
 
     def route_review(self, ch, method, properties, body):
         reviews = json.loads(body)

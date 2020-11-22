@@ -9,6 +9,12 @@ build:
 
 .PHONY: build
 
+clean-disk:
+	sudo docker container stop $$(sudo docker ps -a -q)
+	sudo docker rm $$(sudo docker ps -a -q)
+	sudo docker volume rm $$(sudo docker volume ls -q)
+.PHONY: clean-disk
+
 rabbit-up:
 	sudo docker-compose up -d --build rabbitmq
 .PHONY: rabbit-up
@@ -18,7 +24,7 @@ rabbit-restart:
 .PHONY: rabbit-restart
 
 docker-compose-up:
-	sudo docker-compose up --build client router users stars5 business funny histogram
+	time sudo docker-compose up --build client router users stars5 business funny histogram comment
 .PHONY: docker-compose-up
 
 docker-compose-down:

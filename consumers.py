@@ -2,6 +2,7 @@ import os
 import pika
 import json
 import datetime
+import hashlib
 
 class Consumer():
 
@@ -131,6 +132,21 @@ class FunnyQuerier(JoinerCounterBy):
             newElem = {'city': self.data.get(elem['business_id'], 'Unknown')}
             key = '-'.join([newElem[k] for k in self.keyIds])
             self.keyCount[key] = self.keyCount.get(key, 0) + 1
+
+class CommentQuerier(JoinerCounterBy):
+
+    def aggregate(self, ch, method, properties, body):
+        for elem in json.loads(body):
+            newElem = elem
+            newElem['text']= hashlib.sha1(elem['text'].encode()).hexdigest()
+            commentCount = self.keyCount.get(newElem['user_id'])
+            if commentCount and commentCount[0] == newElem['text']:
+                self.keyCount[newElem['user_id']] = (commentCount[0], commentCount[1] + 1)
+            else:
+                self.keyCount[newElem['user_id']] = (newElem['text'], 1)
+
+    def join(self, dictA):
+        return dict([(k,v[1]) for (k,v) in dictA.items() if dictA[k][1] == self.data.get(k, 0)])
 
 class Stars5Querier(JoinerCounterBy):
 
