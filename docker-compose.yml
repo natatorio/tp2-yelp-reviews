@@ -71,7 +71,7 @@ services:
     entrypoint: python3 stars5/main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=2
       - N_ROUTERS=1
     networks:
       - my_network

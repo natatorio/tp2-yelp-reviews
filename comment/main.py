@@ -9,7 +9,7 @@ def main():
     allSameCommentReviewsPerRelevantUser = querier.join(LastCommentCountPerUser)
 
     print(len(LastCommentCountPerUser), " Users")
-    print(len(allSameCommentReviewsPerRelevantUser), " Releavant users allways commenting the same")
+    print(len(allSameCommentReviewsPerRelevantUser), " Relevant users always commenting the same")
     querier.reply(allSameCommentReviewsPerRelevantUser)
     querier.close()
 
