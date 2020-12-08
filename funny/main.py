@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(os.path.abspath('main.py')))
 from consumers import *
 
 def main():
-    querier = FunnyQuerier(keyIds = ['city'], exchange = 'reviews', routingKey = 'funny')
+    querier = CounterBy(keyId = 'city', exchange = 'reviews', routingKey = 'funny')
     funnyPerCity = querier.count()
     topTenFunnyPerCity = dict([(city, funnyPerCity[city]) for city in sorted(funnyPerCity, key=funnyPerCity.get, reverse=True)[:10]])
 

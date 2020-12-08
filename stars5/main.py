@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(os.path.abspath('main.py')))
 from consumers import *
 
 def main():
-    querier = Stars5Querier(keyIds = ['user_id'], exchange = 'reviews', routingKey = 'stars5')
+    querier = JoinerCounterBy(keyId = 'user_id', exchange = 'reviews', routingKey = 'stars5')
     stars5ReviewsPerUser = querier.count()
     allStars5ReviewsPerRelevantUser = querier.join(stars5ReviewsPerUser)
 

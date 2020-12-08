@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(os.path.abspath('main.py')))
 from consumers import *
 
 def main():
-    querier = CommentQuerier(keyIds = ['user_id', 'text'], exchange = 'reviews', routingKey = 'comment')
+    querier = CommentQuerier(keyId = 'user_id', exchange = 'reviews', routingKey = 'comment')
     LastCommentCountPerUser = querier.count()
     allSameCommentReviewsPerRelevantUser = querier.join(LastCommentCountPerUser)
 

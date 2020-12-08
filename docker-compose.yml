@@ -22,6 +22,20 @@ services:
     depends_on:
       - rabbitmq
 
+  histogram_mapper:
+    container_name: histogram_mapper
+    build:
+      context: .
+    entrypoint: python3 histogram/mapper_main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_ROUTERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
   users:
     container_name: users
     build:
@@ -30,7 +44,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_ROUTERS=1
+      - N_MAPPERS=1
     networks:
       - my_network
     depends_on:
@@ -44,7 +58,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_ROUTERS=1
+      - N_MAPPERS=1
     networks:
       - my_network
     depends_on:
@@ -58,7 +72,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_ROUTERS=1
+      - N_MAPPERS=1
     networks:
       - my_network
     depends_on:
@@ -72,6 +86,20 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=2
+      - N_MAPPERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
+  stars5_mapper:
+    container_name: stars5_mapper
+    build:
+      context: .
+    entrypoint: python3 stars5/mapper_main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_ROUTERS=1
     networks:
       - my_network
@@ -86,6 +114,20 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_MAPPERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
+  comment_mapper:
+    container_name: comment_mapper
+    build:
+      context: .
+    entrypoint: python3 comment/mapper_main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_ROUTERS=1
     networks:
       - my_network
@@ -97,6 +139,20 @@ services:
     build:
       context: .
     entrypoint: python3 funny/main.py
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_MAPPERS=1
+    networks:
+      - my_network
+    depends_on:
+      - router
+
+  funny_mapper:
+    container_name: funny_mapper
+    build:
+      context: .
+    entrypoint: python3 funny/mapper_main.py
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5

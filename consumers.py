@@ -18,7 +18,7 @@ class Consumer():
         self.endQueue = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange=exchange, queue=self.endQueue, routing_key=routingKey+'.END')
 
-        self.activeProducers = int(os.environ['N_ROUTERS'])
+        self.activeProducers = int(os.environ['N_MAPPERS'])
 
     def bind_consume(self):
         self.consumerTag = self.channel.basic_consume(queue=self.consumerQueue, on_message_callback=self.aggregate, auto_ack=True)
@@ -73,8 +73,8 @@ class BusinessConsumer(Consumer):
 
 class CounterBy(Consumer):
 
-    def __init__(self, keyIds, exchange, routingKey):
-        self.keyIds = keyIds
+    def __init__(self, keyId, exchange, routingKey):
+        self.keyId = keyId
         self.keyCount = {}
         super().__init__(exchange, routingKey)
 
@@ -84,21 +84,12 @@ class CounterBy(Consumer):
 
     def aggregate(self, ch, method, properties, body):
         for elem in json.loads(body):
-            key = '-'.join([elem[k] for k in self.keyIds])
-            self.keyCount[key] = self.keyCount.get(key, 0) + 1
-
-class CounterByWeekday(CounterBy):
-
-    def aggregate(self, ch, method, properties, body):
-        for elem in json.loads(body):
-            newElem = {'weekday': datetime.datetime.strptime(elem['date'], '%Y-%m-%d %H:%M:%S').strftime('%A')}
-            key = '-'.join([newElem[k] for k in self.keyIds])
-            self.keyCount[key] = self.keyCount.get(key, 0) + 1
+            self.keyCount[elem[self.keyId]] = self.keyCount.get(elem[self.keyId], 0) + 1
 
 class JoinerCounterBy(CounterBy):
 
-    def __init__(self, keyIds, exchange, routingKey):
-        super().__init__(keyIds, exchange, routingKey)
+    def __init__(self, keyId, exchange, routingKey):
+        super().__init__(keyId, exchange, routingKey)
         self.data = None
         queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange=exchange, queue=queue_name, routing_key=routingKey+'.DATA')
@@ -116,42 +107,15 @@ class JoinerCounterBy(CounterBy):
     def join(self, dictA):
         return dict([(k,v) for (k,v) in dictA.items() if dictA[k] == self.data.get(k, 0)])
 
-class FunnyQuerier(JoinerCounterBy):
-
-    def receive_data(self, ch, method, properties, body):
-        self.data = json.loads(body)
-        self.bind_consume()
-
-    def count(self):
-        self.start_consuming(bind_first=False)
-        return self.keyCount
-
-    def aggregate(self, ch, method, properties, body):
-        for elem in json.loads(body):
-            if elem['funny'] == 0: continue
-            newElem = {'city': self.data.get(elem['business_id'], 'Unknown')}
-            key = '-'.join([newElem[k] for k in self.keyIds])
-            self.keyCount[key] = self.keyCount.get(key, 0) + 1
-
 class CommentQuerier(JoinerCounterBy):
 
     def aggregate(self, ch, method, properties, body):
         for elem in json.loads(body):
-            newElem = elem
-            newElem['text']= hashlib.sha1(elem['text'].encode()).hexdigest()
-            commentCount = self.keyCount.get(newElem['user_id'])
-            if commentCount and commentCount[0] == newElem['text']:
-                self.keyCount[newElem['user_id']] = (commentCount[0], commentCount[1] + 1)
+            commentCount = self.keyCount.get(elem[self.keyId])
+            if commentCount and commentCount[0] == elem['text']:
+                self.keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
             else:
-                self.keyCount[newElem['user_id']] = (newElem['text'], 1)
+                self.keyCount[elem[self.keyId]] = (elem['text'], 1)
 
     def join(self, dictA):
         return dict([(k,v[1]) for (k,v) in dictA.items() if dictA[k][1] == self.data.get(k, 0)])
-
-class Stars5Querier(JoinerCounterBy):
-
-    def aggregate(self, ch, method, properties, body):
-        for elem in json.loads(body):
-            if elem['stars'] != 5.0: continue
-            key = '-'.join([elem[k] for k in self.keyIds])
-            self.keyCount[key] = self.keyCount.get(key, 0) + 1

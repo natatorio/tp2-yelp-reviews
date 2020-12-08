@@ -4,7 +4,7 @@ sys.path.append(os.path.dirname(os.path.abspath('main.py')))
 from consumers import *
 
 def main():
-    counter = CounterBy(keyIds = ['user_id'], exchange = 'reviews', routingKey = 'users')
+    counter = CounterBy(keyId = 'user_id', exchange = 'reviews', routingKey = 'users')
     user_count = counter.count()
     user_count_5 = dict([u for u in user_count.items() if u[1] >= 5])
     user_count_50 = dict([u for u in user_count_5.items() if u[1] >= 50])

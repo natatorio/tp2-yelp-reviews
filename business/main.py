@@ -6,7 +6,7 @@ from consumers import *
 def main():
     bc = BusinessConsumer(exchange = 'reviews', routingKey = 'business')
     businessCities = bc.get_business_cities()
-    bc.forward('reviews', 'funny', businessCities)
+    bc.forward('map', 'funny', businessCities)
 
     print(len(businessCities), " Business Processed")
     bc.close()

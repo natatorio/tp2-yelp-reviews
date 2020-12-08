@@ -24,7 +24,7 @@ rabbit-restart:
 .PHONY: rabbit-restart
 
 docker-compose-up:
-	time sudo docker-compose up --build client router users stars5 business funny histogram comment
+	time sudo docker-compose up --build client router users stars5 stars5_mapper business funny funny_mapper histogram histogram_mapper comment_mapper comment
 .PHONY: docker-compose-up
 
 docker-compose-down:

@@ -11,6 +11,7 @@ class Router:
         self.channel = self.connection.channel()
         self.channel.exchange_declare(exchange='data', exchange_type='direct')
         self.channel.exchange_declare(exchange='reviews', exchange_type='direct')
+        self.channel.exchange_declare(exchange='map', exchange_type='direct')
 
         queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='business')
@@ -53,20 +54,20 @@ class Router:
         users = [{'user_id':r['user_id']} for r in reviews]
         stars5 = [{'stars':r['stars'], 'user_id':r['user_id']} for r in reviews]
         histogram = [{'date':r['date']} for r in reviews]
-        ch.basic_publish(exchange='reviews', routing_key="funny", body=json.dumps(funny))
-        ch.basic_publish(exchange='reviews', routing_key="comment", body=json.dumps(comment))
         ch.basic_publish(exchange='reviews', routing_key="users", body=json.dumps(users))
-        ch.basic_publish(exchange='reviews', routing_key="stars5", body=json.dumps(stars5))
-        ch.basic_publish(exchange='reviews', routing_key="histogram", body=json.dumps(histogram))
+        ch.basic_publish(exchange='map', routing_key="comment", body=json.dumps(comment))
+        ch.basic_publish(exchange='map', routing_key="funny", body=json.dumps(funny))
+        ch.basic_publish(exchange='map', routing_key="stars5", body=json.dumps(stars5))
+        ch.basic_publish(exchange='map', routing_key="histogram", body=json.dumps(histogram))
 
     def stop(self, ch, method, props, body):
         map(self.route_review, self.channel.basic_cancel(self.reviewsTag))
         self.channel.stop_consuming()
-        self.channel.basic_publish(exchange='reviews', routing_key="comment.END", properties=props, body='')
         self.channel.basic_publish(exchange='reviews', routing_key="users.END", properties=props, body='')
-        self.channel.basic_publish(exchange='reviews', routing_key="funny.END", properties=props, body='')
-        self.channel.basic_publish(exchange='reviews', routing_key="stars5.END", properties=props, body='')
-        self.channel.basic_publish(exchange='reviews', routing_key="histogram.END", properties=props, body='')
+        self.channel.basic_publish(exchange='map', routing_key="comment.END", properties=props, body='')
+        self.channel.basic_publish(exchange='map', routing_key="funny.END", properties=props, body='')
+        self.channel.basic_publish(exchange='map', routing_key="stars5.END", properties=props, body='')
+        self.channel.basic_publish(exchange='map', routing_key="histogram.END", properties=props, body='')
 
 def main():
     Router().run()
