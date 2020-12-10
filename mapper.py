@@ -15,7 +15,7 @@ class Mapper:
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
         self.channel.exchange_declare(exchange=exchange, exchange_type='direct')
-        self.consumerQueue = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.consumerQueue = self.channel.queue_declare(queue=routingKey + '.MAP_QUEUE', durable=True).method.queue
         self.channel.queue_bind(exchange=exchange, queue=self.consumerQueue, routing_key=self.routingKey)
 
         self.endQueue = self.channel.queue_declare(queue='', durable=True).method.queue

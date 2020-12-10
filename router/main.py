@@ -13,11 +13,11 @@ class Router:
         self.channel.exchange_declare(exchange='reviews', exchange_type='direct')
         self.channel.exchange_declare(exchange='map', exchange_type='direct')
 
-        queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
+        queue_name = self.channel.queue_declare(queue='business.QUEUE', durable=True).method.queue
         self.channel.queue_bind(exchange='data', queue=queue_name, routing_key='business')
         self.businessTag = self.channel.basic_consume(queue=queue_name, on_message_callback=self.route_business, auto_ack=True)
 
-        self.reviewsQueue = self.channel.queue_declare(queue='', durable=True).method.queue
+        self.reviewsQueue = self.channel.queue_declare(queue='review.QUEUE', durable=True).method.queue
         self.channel.queue_bind(exchange='data', queue=self.reviewsQueue, routing_key='review')
 
         queue_name = self.channel.queue_declare(queue='', durable=True).method.queue
