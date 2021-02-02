@@ -1,12 +1,12 @@
-version: '3'
+version: "3"
 services:
   rabbitmq:
-      image: rabbitmq:3-management-alpine
-      container_name: rabbitmq
-      ports:
-        - 15672:15672
-      networks:
-        - my_network
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    ports:
+      - 15672:15672
+    networks:
+      - my_network
 
   router:
     build:
@@ -159,8 +159,7 @@ services:
   client:
     container_name: client
     build:
-      context: /home/pato/Desktop/distribuidos
-      dockerfile: tp2-yelp-reviews/client/Dockerfile
+      context: .
     entrypoint: python3 client/main.py
     environment:
       - PYTHONUNBUFFERED=1
