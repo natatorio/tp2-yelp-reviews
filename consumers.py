@@ -10,10 +10,21 @@ class Consumer():
         amqp_url = os.environ['AMQP_URL']
         parameters = pika.URLParameters(amqp_url)
         self.connection = pika.BlockingConnection(parameters)
+        self.exchange = exchange
+        self.routingKey = routingKey
         self.channel = self.connection.channel()
         self.channel.exchange_declare(exchange=exchange, exchange_type='direct')
         self.consumerQueue = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange=exchange, queue=self.consumerQueue, routing_key=routingKey)
+
+        self.stateChannel = self.connection.channel()
+        self.stateQueue = self.stateChannel.queue_declare(queue=routingKey+'.STATE', durable=True).method.queue
+        self.stateChannel.queue_bind(exchange=exchange, queue=self.stateQueue, routing_key=routingKey + '.STATE')
+        m, p, b = self.stateChannel.basic_get(self.stateQueue, auto_ack=True)
+        initialState = json.dumps({}) if (None, None, None) == (m, p, b) else b
+        self.stateChannel.basic_publish(exchange=self.exchange, routing_key=self.routingKey + '.STATE', body = initialState)
+        print("Initial State", initialState)
+
 
         self.endQueue = self.channel.queue_declare(queue='', durable=True).method.queue
         self.channel.queue_bind(exchange=exchange, queue=self.endQueue, routing_key=routingKey+'.END')
@@ -39,6 +50,19 @@ class Consumer():
         self.channel.close()
         self.connection.close()
 
+    def get_state(self):
+        for m, p, b in self.stateChannel.consume(self.stateQueue, auto_ack=False, inactivity_timeout=0.1):
+            if (None,None,None) == (m,p,b):
+                # nack msg
+                return
+            state = json.loads(b)
+            self.stateChannel.basic_ack(m.delivery_tag)
+            self.stateChannel.cancel()
+        return state
+
+    def put_state(self, state):
+        self.stateChannel.basic_publish(exchange=self.exchange, routing_key=self.routingKey + '.STATE', body = json.dumps(state))
+
     def aggregate(self, ch, method, properties, body):
         return
 
@@ -61,15 +85,17 @@ class BusinessConsumer(Consumer):
 
     def __init__(self, exchange, routingKey):
         super().__init__(exchange, routingKey)
-        self.businessCities = {}
 
     def get_business_cities(self):
         self.start_consuming()
-        return self.businessCities
+        return self.get_state()
 
-    def aggregate(self, ch, method, properties, body):
+    def aggregate(self, ch, method, props, body):
+        newBusinessCities = {}
         for elem in json.loads(body):
-            self.businessCities[elem['business_id']] = elem['city']
+            newBusinessCities[elem['business_id']] = elem['city']
+        businessCities = {**self.get_state(), **newBusinessCities}
+        self.put_state(businessCities)
 
 class CounterBy(Consumer):
 
