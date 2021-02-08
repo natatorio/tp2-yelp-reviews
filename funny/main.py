@@ -1,16 +1,22 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath('main.py')))
-from consumers import *
+from consumers import CounterBy
+
 
 def main():
-    querier = CounterBy(keyId = 'city', exchange = 'reviews', routingKey = 'funny')
+    querier = CounterBy(keyId="city", exchange="reviews", routing_key="funny")
     funnyPerCity = querier.count()
-    topTenFunnyPerCity = dict([(city, funnyPerCity[city]) for city in sorted(funnyPerCity, key=funnyPerCity.get, reverse=True)[:10]])
+    topTenFunnyPerCity = {
+        fun: city
+        for (city, fun) in sorted(
+            funnyPerCity.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:10]
+    }
 
     print(len(funnyPerCity), " Funny Cities")
-    querier.reply(topTenFunnyPerCity)
+    querier.reply(("funny", topTenFunnyPerCity))
     querier.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -1,12 +1,10 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath('main.py')))
-from mapper import *
+from mapper import CommentMapper
+
 
 def main():
-    mapper = CommentMapper('map', 'reviews', 'comment')
-    mapper.start_consuming()
-    mapper.close()
+    mapper = CommentMapper("map", "reviews", "comment")
+    mapper.run()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

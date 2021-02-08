@@ -1,14 +1,13 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath('main.py')))
-from consumers import *
+from consumers import CounterBy
+
 
 def main():
-    counter = CounterBy(keyId = 'weekday', exchange = 'reviews', routingKey = 'histogram')
+    counter = CounterBy(keyId="weekday", exchange="reviews", routing_key="histogram")
     histogram = counter.count()
-
-    counter.reply(histogram)
+    print("histogram", histogram, counter.reply_to)
+    counter.reply(("histogram", histogram))
     counter.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
