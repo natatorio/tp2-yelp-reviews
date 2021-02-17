@@ -16,6 +16,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+      - N_REPLICAS=2
     networks:
       - my_network
     depends_on:
@@ -28,7 +29,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_REPLICAS=1
+      - N_REPLICAS=2
     networks:
       - my_network
     depends_on:
@@ -97,7 +98,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_REPLICAS=1
+      - N_REPLICAS=2
     networks:
       - my_network
     depends_on:
@@ -124,7 +125,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_REPLICAS=1
+      - N_REPLICAS=2
     networks:
       - my_network
     depends_on:
@@ -151,7 +152,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_REPLICAS=1
+      - N_REPLICAS=2
     networks:
       - my_network
     depends_on:

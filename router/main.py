@@ -91,8 +91,8 @@ class Router:
                 count_down = payload.get("count_down", self.replicas)
                 if count_down > 1:
                     self.channel.basic_publish(
-                        exchange="reviews",
-                        routing_key="business",
+                        exchange="data",
+                        routing_key="review",
                         properties=props,
                         body=json.dumps(
                             {
