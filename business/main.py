@@ -1,15 +1,14 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath('main.py')))
-from consumers import *
+from consumers import BusinessConsumer
+
 
 def main():
-    bc = BusinessConsumer(exchange = 'reviews', routingKey = 'business')
+    bc = BusinessConsumer(exchange="reviews", routing_key="business")
     businessCities = bc.get_business_cities()
-    bc.forward('map', 'funny', businessCities)
-
+    print("forward")
+    bc.forward("map", "funny", businessCities)
     print(len(businessCities), " Business Processed")
     bc.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
