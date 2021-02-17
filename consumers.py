@@ -25,6 +25,24 @@ class Consumer:
 
         self.replicas = int(os.environ["N_REPLICAS"])
 
+        self.stateChannel = self.connection.channel()
+        self.stateQueue = self.stateChannel.queue_declare(
+            queue=routing_key+'.STATE', durable=True
+        ).method.queue
+        self.stateChannel.queue_bind(
+            exchange=exchange,
+            queue=self.stateQueue,
+            routing_key=routing_key + '.STATE'
+        )
+        m, p, b = self.stateChannel.basic_get(self.stateQueue, auto_ack=True)
+        initialState = json.dumps({}) if (None, None, None) == (m, p, b) else b
+        self.stateChannel.basic_publish(
+            exchange=self.exchange,
+            routing_key=self.routing_key + '.STATE',
+            body = initialState
+        )
+        print("Initial State", initialState)
+
     def prepare(self):
         return
 
@@ -66,6 +84,22 @@ class Consumer:
         self.connection.process_data_events()
         self.connection.close()
 
+    def get_state(self):
+        for m, p, b in self.stateChannel.consume(self.stateQueue, auto_ack=False):
+            if (None,None,None) == (m,p,b):
+                return
+            state = json.loads(b.decode("utf-8"))
+            self.stateChannel.basic_ack(m.delivery_tag)
+            self.stateChannel.cancel()
+        return state
+
+    def put_state(self, state):
+        self.stateChannel.basic_publish(
+            exchange=self.exchange,
+            routing_key=self.routing_key + '.STATE',
+            body = json.dumps(state)
+        )
+
     def aggregate(self, data):
         return
 
@@ -88,30 +122,33 @@ class Consumer:
 class BusinessConsumer(Consumer):
     def __init__(self, exchange, routing_key):
         super().__init__(exchange, routing_key)
-        self.businessCities = {}
 
     def get_business_cities(self):
         self.run()
-        return self.businessCities
+        return self.get_state()
 
     def aggregate(self, data):
+        newBusinessCities = {}
         for elem in data:
-            self.businessCities[elem["business_id"]] = elem["city"]
+            newBusinessCities[elem['business_id']] = elem['city']
+        businessCities = {**self.get_state(), **newBusinessCities}
+        self.put_state(businessCities)
 
 
 class CounterBy(Consumer):
     def __init__(self, keyId, exchange, routing_key):
         self.keyId = keyId
-        self.keyCount = {}
         super().__init__(exchange, routing_key)
 
     def count(self):
         self.run()
-        return self.keyCount
+        return self.get_state()
 
     def aggregate(self, data):
+        keyCount = self.get_state()
         for elem in data:
-            self.keyCount[elem[self.keyId]] = self.keyCount.get(elem[self.keyId], 0) + 1
+            keyCount[elem[self.keyId]] = keyCount.get(elem[self.keyId], 0) + 1
+        self.put_state(keyCount)
 
 
 class JoinerCounterBy(CounterBy):
@@ -158,12 +195,14 @@ class JoinerCounterBy(CounterBy):
 
 class CommentQuerier(JoinerCounterBy):
     def aggregate(self, data):
+        keyCount = self.get_state()
         for elem in data:
-            commentCount = self.keyCount.get(elem[self.keyId])
+            commentCount = keyCount.get(elem[self.keyId])
             if commentCount and commentCount[0] == elem["text"]:
-                self.keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
+                keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
             else:
-                self.keyCount[elem[self.keyId]] = (elem["text"], 1)
+                keyCount[elem[self.keyId]] = (elem["text"], 1)
+        self.put_state(keyCount)
 
     def join(self, dictA):
         return {

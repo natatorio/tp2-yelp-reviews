@@ -104,7 +104,7 @@ class FunnyMapper(Mapper):
                 self.data = payload["data"]
                 count_down = payload.get("count_down", self.replicas)
                 if count_down > 1:
-                    print("count_down:", count_down)
+                    print("DATA count_down:", count_down)
                     self.channel.basic_publish(
                         exchange=self.inExchange,
                         routing_key=self.business_routing_key,
@@ -117,7 +117,7 @@ class FunnyMapper(Mapper):
                         ),
                     )
                 else:
-                    print("count_down done")
+                    print("DATA count_down done")
                 break
         finally:
             self.channel.cancel()

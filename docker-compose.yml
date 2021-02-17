@@ -152,7 +152,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-      - N_REPLICAS=2
+      - N_REPLICAS=1
     networks:
       - my_network
     depends_on:
