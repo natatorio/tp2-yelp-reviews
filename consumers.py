@@ -32,7 +32,7 @@ class Consumer():
         self.activeProducers = int(os.environ['N_MAPPERS'])
 
     def bind_consume(self):
-        self.consumerTag = self.channel.basic_consume(queue=self.consumerQueue, on_message_callback=self.aggregate, auto_ack=True)
+        self.consumerTag = self.channel.basic_consume(queue=self.consumerQueue, on_message_callback=self.aggregate, auto_ack=False)
         self.channel.basic_consume(queue=self.endQueue, on_message_callback=self.end, auto_ack=True)
 
     def start_consuming(self, bind_first=True):
@@ -51,7 +51,7 @@ class Consumer():
         self.connection.close()
 
     def get_state(self):
-        for m, p, b in self.stateChannel.consume(self.stateQueue, auto_ack=False, inactivity_timeout=0.1):
+        for m, p, b in self.stateChannel.consume(self.stateQueue, auto_ack=False, inactivity_timeout=0):
             if (None,None,None) == (m,p,b):
                 # nack msg
                 return
@@ -88,29 +88,45 @@ class BusinessConsumer(Consumer):
 
     def get_business_cities(self):
         self.start_consuming()
-        return self.get_state()
+        businessCities = self.get_state()
+        while not businessCities:
+            businessCities = self.get_state()
+        return businessCities
 
     def aggregate(self, ch, method, props, body):
         newBusinessCities = {}
-        for elem in json.loads(body):
+        for elem in json.loads(body.decode("utf-8")):
             newBusinessCities[elem['business_id']] = elem['city']
-        businessCities = {**self.get_state(), **newBusinessCities}
-        self.put_state(businessCities)
+        historicBussinessCities = self.get_state()
+        if historicBussinessCities != None:
+            businessCities = {**historicBussinessCities, **newBusinessCities}
+            self.put_state(businessCities)
+            self.channel.basic_ack(method.delivery_tag)
+        else:
+            self.channel.basic_nack(method.delivery_tag)
 
 class CounterBy(Consumer):
 
     def __init__(self, keyId, exchange, routingKey):
         self.keyId = keyId
-        self.keyCount = {}
         super().__init__(exchange, routingKey)
 
     def count(self):
         self.start_consuming()
-        return self.keyCount
+        count = self.get_state()
+        while not count:
+            count = self.get_state()
+        return count
 
     def aggregate(self, ch, method, properties, body):
-        for elem in json.loads(body):
-            self.keyCount[elem[self.keyId]] = self.keyCount.get(elem[self.keyId], 0) + 1
+        keyCount = self.get_state()
+        if keyCount != None:
+            for elem in json.loads(body.decode("utf-8")):
+                keyCount[elem[self.keyId]] = keyCount.get(elem[self.keyId], 0) + 1
+            self.put_state(keyCount)
+            self.channel.basic_ack(method.delivery_tag)
+        else:
+            self.channel.basic_nack(method.delivery_tag)
 
 class JoinerCounterBy(CounterBy):
 
@@ -122,7 +138,7 @@ class JoinerCounterBy(CounterBy):
         self.channel.basic_consume(queue=queue_name, on_message_callback=self.receive_data, auto_ack=True)
 
     def receive_data(self, ch, method, properties, body):
-        self.data = json.loads(body)
+        self.data = json.loads(body.decode("utf-8"))
         if not self.activeProducers:
             self.channel.stop_consuming()
 
@@ -136,12 +152,18 @@ class JoinerCounterBy(CounterBy):
 class CommentQuerier(JoinerCounterBy):
 
     def aggregate(self, ch, method, properties, body):
-        for elem in json.loads(body):
-            commentCount = self.keyCount.get(elem[self.keyId])
-            if commentCount and commentCount[0] == elem['text']:
-                self.keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
-            else:
-                self.keyCount[elem[self.keyId]] = (elem['text'], 1)
+        keyCount = self.get_state()
+        if keyCount != None:
+            for elem in json.loads(body.decode("utf-8")):
+                commentCount = keyCount.get(elem[self.keyId])
+                if commentCount and commentCount[0] == elem['text']:
+                    keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
+                else:
+                    keyCount[elem[self.keyId]] = (elem['text'], 1)
+            self.put_state(keyCount)
+            self.channel.basic_ack(method.delivery_tag)
+        else:
+            self.channel.basic_nack(method.delivery_tag)
 
     def join(self, dictA):
         return dict([(k,v[1]) for (k,v) in dictA.items() if dictA[k][1] == self.data.get(k, 0)])
