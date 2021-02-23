@@ -163,7 +163,8 @@ class Router:
 
 
 def main():
-    Router().run()
+    while True:
+        Router().run()
 
 
 if __name__ == "__main__":
