@@ -24,8 +24,8 @@ rabbit-restart:
 .PHONY: rabbit-restart
 
 docker-compose-up:
-	time sudo docker-compose up --scale router=2 --scale stars5_mapper=2 --scale histogram_mapper=2 --scale funny_mapper=2 --scale comment_mapper=2 \
-	--build client router users stars5 stars5_mapper business funny funny_mapper histogram histogram_mapper comment_mapper comment
+	time sudo docker-compose up --scale watchdog=1 --scale router=2 --scale stars5_mapper=2 --scale histogram_mapper=2 --scale funny_mapper=2 --scale comment_mapper=2 \
+	--build client router users stars5 stars5_mapper business funny funny_mapper histogram histogram_mapper comment_mapper comment watchdog
 .PHONY: docker-compose-up
 
 docker-compose-down:

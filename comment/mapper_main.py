@@ -1,9 +1,13 @@
 from mapper import CommentMapper
+from health_server import HealthServer
 
 
 def main():
-    mapper = CommentMapper("map", "reviews", "comment")
-    mapper.run()
+    healthServer = HealthServer()
+    while True:
+        mapper = CommentMapper("map", "reviews", "comment")
+        mapper.run()
+    healthServer.stop()
 
 
 if __name__ == "__main__":

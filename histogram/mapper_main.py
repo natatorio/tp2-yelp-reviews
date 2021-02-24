@@ -1,9 +1,13 @@
 from mapper import HistogramMapper
+from health_server import HealthServer
 
 
 def main():
-    mapper = HistogramMapper("map", "reviews", "histogram")
-    mapper.run()
+    healthServer = HealthServer()
+    while True:
+        mapper = HistogramMapper("map", "reviews", "histogram")
+        mapper.run()
+    healthServer.stop()
 
 
 if __name__ == "__main__":

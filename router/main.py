@@ -1,7 +1,7 @@
 import json
 import os
-
 import pika
+from health_server import HealthServer
 
 
 # https://stackoverflow.com/questions/24510310/consume-multiple-queues-in-python-pika
@@ -163,7 +163,10 @@ class Router:
 
 
 def main():
-    Router().run()
+    healthServer = HealthServer()
+    while True:
+        Router().run()
+    healthServer.stop()
 
 
 if __name__ == "__main__":
