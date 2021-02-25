@@ -42,6 +42,8 @@ services:
       - N_FUNNY_MAPPER=2
     networks:
       - my_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   router:
     build:

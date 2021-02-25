@@ -1,10 +1,13 @@
 import requests
 import os
 import time
+import subprocess
+
 
 def revive(ip):
-    # TODO docker in docker
-    return
+    print('Process ' + ip + ' has died. Starting it up again...')
+    result = subprocess.run(['docker', 'start', ip], check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    print('Process ' + ip + ' is up again. Result={}. Output={}. Error={}'.format(result.returncode, result.stdout, result.stderr))
 
 def main():
     ips = []
@@ -27,7 +30,6 @@ def main():
                 requests.get('http://' + ip + ':' + port + '/health')
             except:
                 revive(ip)
-                print('It\'s dead')
 
 if __name__ == "__main__":
     main()
