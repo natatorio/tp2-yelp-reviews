@@ -15,7 +15,7 @@ services:
     entrypoint: python3 -m watchdog.main
     environment:
       - PYTHONUNBUFFERED=1
-      - N_REPLICAS=1
+      - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
       - IP_PREFIX=tp2-yelp-reviews
       - IP_ROUTER=router
