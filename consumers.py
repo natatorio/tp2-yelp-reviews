@@ -169,3 +169,26 @@ class CommentQuerier(JoinerCounterBy):
         return {
             k: v[1] for (k, v) in dictA.items() if dictA[k][1] == self.data.get(k, 0)
         }
+
+
+class Reducer:
+    def run():
+        try:
+            for method, props, body in self.channel.consume(queue, auto_ack=false):
+                data = json.loads(body.decode("utf-8"))
+                if not self.is_dup(data):
+                    self.state = aggregate(self.state, data)
+                    self.state_store.next_state(self.state, data)
+                    channel.basic_ack(method.delivery_tag)
+                    self.dup_register.done(data)
+                    self.state_store.done()
+                channel.basic_ack(method.delivery_tag)
+        finally:
+            channel.cancel()
+
+    def start(self):
+        [state_n, state_n_1, last_item] = self.fetch_workspace(self.pname)
+        if last_item is not None and self.is_dup(last_item):
+            self.state = self.fetch_state(state_n_1)
+        else:
+            self.state = self.fetch_state(state_n)
