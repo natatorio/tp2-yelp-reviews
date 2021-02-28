@@ -3,13 +3,15 @@ import random
 from threading import RLock
 from scheduler import Scheduler
 import requests
+import logging
 
+HEARBEAT_TIMEOUT = 10000
 
-HEARBEAT_TIMEOUT = 1000
+logger = logging.getLogger("raft")
 
 
 def generate_election_timeout():
-    return random.randint(200, 300) * 10
+    return random.randint(200, 300) * 100
 
 
 class Follower:
@@ -49,10 +51,10 @@ class Candidate:
     def __init__(self, context):
         self.context = context
         self.found_better_leader = False
-        self.start_election()
+        self.context.schedule(0, self.start_election)
 
     def start_election(self):
-        print(self.context.name, "started election")
+        logger.info(f"{self.context.name} started election")
         self.context.__vote__(self.context.name, self.context.current_term + 1)
         votes = 1
         for replica in self.context.replicas:
@@ -74,7 +76,7 @@ class Candidate:
 
             if res and res["vote_granted"]:
                 votes += 1
-        print("votes", votes)
+        logger.info(f"votes {votes}")
         if votes >= int(len(self.context.replicas) / 2) + 1:
             self.context.as_leader()
         elif not self.found_better_leader:
@@ -96,6 +98,7 @@ class Candidate:
         return res
 
     def append_entry(self, req):
+        logger.info("candidate")
         return {"success": False}
 
 
@@ -170,6 +173,7 @@ class Leader:
                 self.next_index[replica] -= 1
 
         commited_sorted_by_mayority = sort_by_mayority(self.match_index.values())
+        logger.info(f"commited: {commited_sorted_by_mayority}")
         for commited in commited_sorted_by_mayority:
             if commited <= self.context.commit_index:
                 break
@@ -179,6 +183,7 @@ class Leader:
         return self.context.commit_index
 
     def append_entry(self, req):
+        logger.info("acá")
         entry_index = len(self.context.entries)
         self.context.__append_entry__(
             entry_index,
@@ -187,7 +192,6 @@ class Leader:
                 "data": req,
             },
         )
-        self.context.entries += req
         commited = self.update_replicas()
         self.context.__update_commit_index__(commited)
         if commited == entry_index:
@@ -217,7 +221,7 @@ class Raft:
         self.lock = RLock()
         self.scheduler = Scheduler()
 
-        self.state = Follower(self)
+        self.as_follower()
 
     def append_entry(self, req):
         return self.state.append_entry(req)
@@ -229,7 +233,11 @@ class Raft:
         return self.state.request_vote(req)
 
     def __append_entry__(self, index, req):
-        self.entries[index] = req
+        logger.info(f"append_entry: {req} {index}")
+        if len(self.entries) >= index:
+            self.entries += [req]
+        else:
+            self.entries[index] = req
 
     def __vote__(self, voted_for, term):
         with self.lock:
@@ -313,26 +321,37 @@ class Raft:
             self.machine.run(self.entries[prev_index : commited + 1])
 
     def as_candidate(self):
-        print(self.name, " as candidate")
-        self.state = Candidate(self)
+        with self.lock:
+            logger.info(f"{self.name} as candidate")
+            self.state = None
+            self.state = Candidate(self)
 
     def as_leader(self):
-        print(self.name, " as leader")
-        self.state = Leader(self)
+        with self.lock:
+            logger.info(f"{self.name} as leader")
+            self.state = None
+            self.state = Leader(self)
 
     def as_follower(self):
-        print(self.name, " as follower")
-        self.state = Leader(self)
+        with self.lock:
+            logger.info(f"{self.name} as follower")
+            self.state = None
+            self.state = Follower(self)
 
     def fetch(self, replica, service, data):
-        response = requests.post("http://" + replica + "/" + service, json=data)
-        if response.status_code == 200:
-            return response.json()
-        print(response.headers["Content-type"], response.status_code, response.text)
+        try:
+            response = requests.post(f"http://{replica}/{service}", json=data)
+            if response.status_code == 200:
+                return response.json()
+            logger.info(
+                f"{response.headers['Content-type']}, {response.status_code}, {response.text}"
+            )
+        except Exception:
+            logger.exception(f"Calling {replica}/{service}")
         return None
 
     def schedule(self, delaymillis, func):
-        # print(self.name, " schedule ", delaymillis)
+        # logger.info(self.name, " schedule ", delaymillis)
         self.scheduler.schedule(
             timedelta(milliseconds=delaymillis),
             func,
@@ -345,6 +364,7 @@ import os
 if __name__ == "__main__":
 
     app = Flask(__name__)
+    logging.basicConfig(level=logging.DEBUG)
     raft = Raft(os.environ["NAME"], os.environ["REPLICAS"].split(","), None)
 
     @app.route("/request_vote", methods=["POST"])
@@ -364,13 +384,19 @@ if __name__ == "__main__":
 
     @app.route("/show")
     def show():
-        return {
+        res = {
             "entries": raft.entries,
             "voted_for": raft.voted_for,
             "current_term": raft.current_term,
             "commit_index": raft.commit_index,
             "replicas": raft.replicas,
             "name": raft.name,
+            "state": raft.state.__class__.__name__,
         }
 
+        # raft.state = Leader(raft)
+        return res
+
     app.run(host="0.0.0.0", port=80, threaded=True)
+
+response = requests.post("http://localhost:8082/append_entry", json={"last": 2})
