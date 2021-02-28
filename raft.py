@@ -1,15 +1,15 @@
-from datetime import datetime
-import sched
-import time
+from datetime import datetime, timedelta
 import random
-from threading import Lock
+from threading import RLock
+from scheduler import Scheduler
+import requests
 
-RAFT_SCHED = sched.scheduler(time.time, time.sleep)
-HEARBEAT_TIMEOUT = 50
+
+HEARBEAT_TIMEOUT = 1000
 
 
 def generate_election_timeout():
-    return random.randint(100, 300)
+    return random.randint(200, 300) * 10
 
 
 class Follower:
@@ -17,14 +17,14 @@ class Follower:
         self.context = context
         self.election_timeout = generate_election_timeout()
         self.last_message_time = datetime.now()
-        RAFT_SCHED.enter(self.context.election_timeout, 1, self.on_election_timeout)
+        self.context.schedule(self.election_timeout, self.on_election_timeout)
 
     def on_election_timeout(self):
         elapsed_time = datetime.now() - self.last_message_time
-        if elapsed_time.total_seconds() * 1000 < self.election_timeout:
+        if elapsed_time.total_seconds() * 1000 >= self.election_timeout:
             self.context.as_candidate()
         else:
-            RAFT_SCHED.enter(self.election_timeout, 1, self.on_election_timeout)
+            self.context.schedule(self.election_timeout, self.on_election_timeout)
 
     def append_entries(self, req):
         self.last_message_time = datetime.now()
@@ -42,7 +42,7 @@ class Follower:
         return self.context.__request_vote__(req)
 
     def append_entry(self, req):
-        return {"success": False, "redirect": self.context.vote_for}
+        return {"success": False, "redirect": self.context.voted_for}
 
 
 class Candidate:
@@ -52,30 +52,34 @@ class Candidate:
         self.start_election()
 
     def start_election(self):
-        self.context.__vote_self__()
+        print(self.context.name, "started election")
+        self.context.__vote__(self.context.name, self.context.current_term + 1)
         votes = 1
         for replica in self.context.replicas:
             if self.found_better_leader:
                 return
             if replica == self.context.name:
                 continue
-            res = replica.request_vote(
+
+            res = self.context.fetch(
+                replica,
+                "request_vote",
                 {
                     "term": self.context.current_term,
-                    "canditate_id": self.context.name,
+                    "candidate_id": self.context.name,
                     "last_log_index": len(self.context.entries) - 1,
-                    "last_log_term": self.context.entries[-1],
-                }
+                    "last_log_term": self.context.entries[-1]["term"],
+                },
             )
 
-            if res["vote_granted"]:
+            if res and res["vote_granted"]:
                 votes += 1
-
+        print("votes", votes)
         if votes >= int(len(self.context.replicas) / 2) + 1:
             self.context.as_leader()
         elif not self.found_better_leader:
             self.election_timeout = generate_election_timeout()
-            RAFT_SCHED.enter(self.election_timeout, 1, self.start_election)
+            self.context.schedule(self.election_timeout, self.start_election)
 
     def append_entries(self, req):
         res = self.context.__append_entries__(req)
@@ -120,17 +124,18 @@ class Leader:
         self.context = context
         self.heartbeat_timeout = HEARBEAT_TIMEOUT
         self.next_index = {
-            replica: len(self.context.entries) for replica in self.context.replicas
+            replica: max(len(self.context.entries) - 1, 0) + 1
+            for replica in self.context.replicas
         }
         self.match_index = {replica: 0 for replica in self.context.replicas}
-        RAFT_SCHED.enter(self.heartbeat_timeout, 1, self.heartbeat)
+        self.context.schedule(self.heartbeat_timeout, self.heartbeat)
         # TODO commit blank to force replication sync
 
     def heartbeat(self):
-        if self.context.vote_for == self.context.name:
+        if self.context.voted_for == self.context.name:
             commited = self.update_replicas()
             self.context.__update_commit_index__(commited)
-            RAFT_SCHED.enter(self.heartbeat_timeout, 1, self.heartbeat)
+            self.context.schedule(self.heartbeat_timeout, self.heartbeat)
 
     def append_entries(self, req):
         return self.context.__append_entries__(req)
@@ -146,7 +151,9 @@ class Leader:
 
             prev_log_index = self.next_index[replica] - 1
             prev_log_term = self.context.entries[prev_log_index]["term"]
-            res = replica.append_entries(
+            res = self.context.fetch(
+                replica,
+                "append_entries",
                 {
                     "term": self.context.current_term,
                     "leader_id": self.context.name,
@@ -154,15 +161,16 @@ class Leader:
                     "prev_log_term": prev_log_term,
                     "entries": self.context.entries[(prev_log_index + 1) :],
                     "leader_commit": self.context.commit_index,
-                }
+                },
             )
-            if res["success"]:
+            if res and res["success"]:
                 self.next_index[replica] = len(self.context.entries)
-                self.match_index[replica] = len(self.context.entries)
+                self.match_index[replica] = len(self.context.entries) - 1
             else:
                 self.next_index[replica] -= 1
 
-        for commited in sort_by_mayority(self.match_index.values()):
+        commited_sorted_by_mayority = sort_by_mayority(self.match_index.values())
+        for commited in commited_sorted_by_mayority:
             if commited <= self.context.commit_index:
                 break
             if self.context.current_term == self.context.entries[commited]["term"]:
@@ -201,27 +209,32 @@ class Raft:
 
         self.current_term = 0
         self.voted_for = None
-        self.entries = []
+        self.entries = [{"term": 0, "data": None}]
 
-        self.commit_index = -1
-        self.last_applied = -1
+        self.commit_index = 0
+        self.last_applied = 0
 
-        self.lock = Lock()
+        self.lock = RLock()
+        self.scheduler = Scheduler()
+
         self.state = Follower(self)
 
     def append_entry(self, req):
         return self.state.append_entry(req)
 
-    def __append_entry__(self, index, req):
-        self.entries[index] = req
-
     def append_entries(self, req):
         return self.state.append_entries(req)
 
-    def __vote_self__(self):
+    def request_vote(self, req):
+        return self.state.request_vote(req)
+
+    def __append_entry__(self, index, req):
+        self.entries[index] = req
+
+    def __vote__(self, voted_for, term):
         with self.lock:
-            self.voted_for = self.name
-            self.current_term += 1
+            self.voted_for = voted_for
+            self.current_term = term
 
     def __append_entries__(self, req):
         #  {  "term": 0,
@@ -230,43 +243,39 @@ class Raft:
         #     "prev_log_term": 0,
         #     "entries": [],
         #     "leader_commit": 0 }
-        with self.lock:
-            if req["term"] < self.current_term:
-                return {
-                    "term": self.current_term,
-                    "success": False,
-                }
-            if req["prev_log_index"] >= len(self.entries):
-                return {
-                    "term": self.current_term,
-                    "success": False,
-                }
-            else:
-                if self.entries[req["prev_log_index"]]["term"] != req["prev_log_term"]:
-                    return {
-                        "term": self.current_term,
-                        "success": False,
-                    }
-                # TODO should do consistency check for differing entries,
-                # instead just override with new entries from leader
-            for i in range(0, len(req["entries"])):
-                self.__append_entry__(req["prev_log_index"] + 1 + i, req["entries"][i])
-
-            if req["leader_commit"] > self.commit_index:
-                self.__update_commit_index__(
-                    min(
-                        req["leader_commit"],
-                        len(self.entries) - 1,
-                    )
-                )
-
+        if req["term"] < self.current_term:
             return {
                 "term": self.current_term,
-                "success": True,
+                "success": False,
             }
+        if req["prev_log_index"] >= len(self.entries):
+            return {
+                "term": self.current_term,
+                "success": False,
+            }
+        else:
+            if self.entries[req["prev_log_index"]]["term"] != req["prev_log_term"]:
+                return {
+                    "term": self.current_term,
+                    "success": False,
+                }
+                # TODO should do consistency check for differing entries,
+                # instead just override with new entries from leader
+        for i in range(0, len(req["entries"])):
+            self.__append_entry__(req["prev_log_index"] + 1 + i, req["entries"][i])
 
-    def request_vote(self, req):
-        return self.state.request_vote(req)
+        if req["leader_commit"] > self.commit_index:
+            self.__update_commit_index__(
+                min(
+                    req["leader_commit"],
+                    len(self.entries) - 1,
+                )
+            )
+
+        return {
+            "term": self.current_term,
+            "success": True,
+        }
 
     def __request_vote__(self, req):
         # {"term":0,
@@ -275,40 +284,93 @@ class Raft:
         #  "last_log_term":0, }
         def upto_date(self, req):
             last_log_term = self.entries[-1]["term"]
-            return (
+            return last_log_term < req["last_log_term"] or (
                 last_log_term == req["last_log_term"]
                 and len(self.entries) - 1 <= req["last_log_index"]
-            ) or (last_log_term < req["last_log_term"])
+            )
 
-        with self.lock:
-            if req["term"] >= self.current_term:
-                if self.voted_for is None or self.voted_for == req["candidate_id"]:
-                    if upto_date(self, req):
-                        self.voted_for = req["candidate_id"]
-                        self.current_term = req["term"]
-                        return {
-                            "term": self.current_term,
-                            "vote_granted": True,
-                        }
-            return {
-                "term": self.current_term,
-                "vote_granted": False,
-            }
+        if req["term"] >= self.current_term:
+            if (
+                self.voted_for is None
+                or self.voted_for == req["candidate_id"]
+                or self.voted_for == self.name
+            ):
+                if upto_date(self, req):
+                    self.__vote__(req["candidate_id"], req["term"])
+                    return {
+                        "term": self.current_term,
+                        "vote_granted": True,
+                    }
+        return {
+            "term": self.current_term,
+            "vote_granted": False,
+        }
 
     def __update_commit_index__(self, commited):
-        with self.lock:
-            prev_index = self.commit_index
-            self.commit_index = commited
+        prev_index = self.commit_index
+        self.commit_index = commited
+        if self.machine:
             self.machine.run(self.entries[prev_index : commited + 1])
 
     def as_candidate(self):
-        with self.lock:
-            self.state = Candidate(self)
+        print(self.name, " as candidate")
+        self.state = Candidate(self)
 
     def as_leader(self):
-        with self.lock:
-            self.state = Leader(self)
+        print(self.name, " as leader")
+        self.state = Leader(self)
 
     def as_follower(self):
-        with self.lock:
-            self.state = Follower(self)
+        print(self.name, " as follower")
+        self.state = Leader(self)
+
+    def fetch(self, replica, service, data):
+        response = requests.post("http://" + replica + "/" + service, json=data)
+        if response.status_code == 200:
+            return response.json()
+        print(response.headers["Content-type"], response.status_code, response.text)
+        return None
+
+    def schedule(self, delaymillis, func):
+        # print(self.name, " schedule ", delaymillis)
+        self.scheduler.schedule(
+            timedelta(milliseconds=delaymillis),
+            func,
+        )
+
+
+from flask import Flask, request
+import os
+
+if __name__ == "__main__":
+
+    app = Flask(__name__)
+    raft = Raft(os.environ["NAME"], os.environ["REPLICAS"].split(","), None)
+
+    @app.route("/request_vote", methods=["POST"])
+    def request_vote():
+        data = request.get_json()
+        return raft.request_vote(data)
+
+    @app.route("/append_entries", methods=["POST"])
+    def append_entries():
+        data = request.get_json()
+        return raft.append_entries(data)
+
+    @app.route("/append_entry", methods=["POST"])
+    def append_entry():
+        data = request.get_json()
+        return raft.append_entry(data)
+
+    @app.route("/show")
+    def show():
+        return {
+            "entries": raft.entries,
+            "voted_for": raft.voted_for,
+            "current_term": raft.current_term,
+            "commit_index": raft.commit_index,
+            "replicas": raft.replicas,
+            "name": raft.name,
+        }
+
+    app.run(host="0.0.0.0", port=80, threaded=True)
