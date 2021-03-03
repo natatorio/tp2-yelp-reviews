@@ -41,7 +41,7 @@ class Mapper:
         try:
             self.prepare()
             for method, props, body in self.channel.consume(
-                self.consumer_queue, auto_ack=True
+                self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
                 data = payload["data"]
@@ -53,6 +53,7 @@ class Mapper:
                         properties=props,
                         body=json.dumps({"data": mapped_data}),
                     )
+                    self.channel.basic_ack(method.delivery_tag)
                 else:
                     count_down = payload.get("count_down", self.replicas)
                     if count_down <= 1:
@@ -76,6 +77,7 @@ class Mapper:
                                 }
                             ),
                         )
+                    self.channel.basic_ack(method.delivery_tag)
                     break
         finally:
             self.channel.cancel()
@@ -98,7 +100,7 @@ class FunnyMapper(Mapper):
         )
         try:
             for method, props, body in self.channel.consume(
-                self.business_queue, auto_ack=True
+                self.business_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
                 self.data = payload["data"]
@@ -118,6 +120,7 @@ class FunnyMapper(Mapper):
                     )
                 else:
                     print("count_down done")
+                self.channel.basic_ack(method.delivery_tag)
                 break
         finally:
             self.channel.cancel()

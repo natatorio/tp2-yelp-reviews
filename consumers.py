@@ -33,12 +33,13 @@ class Consumer:
         self.prepare()
         try:
             for method, props, body in self.channel.consume(
-                self.consumer_queue, auto_ack=True
+                self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
                 data = payload["data"]
                 if data:
                     self.aggregate(data)
+                    self.channel.basic_ack(method.delivery_tag)
                 else:
                     self.reply_to = props.reply_to
                     count_down = payload.get("count_down", self.replicas)
@@ -57,6 +58,7 @@ class Consumer:
                         )
                     else:
                         print("count_down done")
+                    self.channel.basic_ack(method.delivery_tag)
                     break
         finally:
             self.channel.cancel()
@@ -128,7 +130,7 @@ class JoinerCounterBy(CounterBy):
         )
         try:
             for method, props, body in self.channel.consume(
-                self.data_queue_name, auto_ack=True
+                self.data_queue_name, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
                 self.data = payload["data"]
@@ -148,6 +150,8 @@ class JoinerCounterBy(CounterBy):
                     )
                 else:
                     print("count_down done")
+
+                self.channel.basic_ack(method.delivery_tag)
                 break
         finally:
             self.channel.cancel()

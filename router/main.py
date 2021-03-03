@@ -39,7 +39,7 @@ class Router:
         try:
             count_down = 1
             for method, props, body in self.channel.consume(
-                self.business_queue, auto_ack=True
+                self.business_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
                 business = payload["data"]
@@ -54,8 +54,10 @@ class Router:
                         properties=props,
                         body=json.dumps({"data": business_cities}),
                     )
+                    self.channel.basic_ack(method.delivery_tag)
                 else:
                     count_down = payload.get("count_down", self.replicas)
+                    self.channel.basic_ack(method.delivery_tag)
                     break
         finally:
             self.channel.cancel()
@@ -81,12 +83,13 @@ class Router:
 
     def consume_reviews(self):
         for method, props, body in self.channel.consume(
-            self.reviews_queue, auto_ack=True
+            self.reviews_queue, auto_ack=False
         ):
             payload = json.loads(body.decode("utf-8"))
             reviews = payload["data"]
             if reviews:
                 self.route_review(reviews, props)
+                self.channel.basic_ack(method.delivery_tag)
             else:
                 count_down = payload.get("count_down", self.replicas)
                 if count_down > 1:
@@ -103,6 +106,7 @@ class Router:
                     )
                 else:
                     self.route_review(None, props)
+                self.channel.basic_ack(method.delivery_tag)
                 break
         self.channel.cancel()
 
