@@ -76,7 +76,6 @@ services:
       - router
 
   users:
-    container_name: users
     build:
       context: .
     entrypoint: python3 -m users.main
@@ -91,7 +90,6 @@ services:
       - router
 
   histogram:
-    container_name: histogram
     build:
       context: .
     entrypoint: python3 -m histogram.main
@@ -106,7 +104,6 @@ services:
       - router
 
   business:
-    container_name: business
     build:
       context: .
     entrypoint: python3 -m business.main
@@ -121,7 +118,6 @@ services:
       - router
 
   stars5:
-    container_name: stars5
     build:
       context: .
     entrypoint: python3 -m stars5.main
@@ -150,7 +146,6 @@ services:
       - router
 
   comment:
-    container_name: comment
     build:
       context: .
     entrypoint: python3 -m comment.main
@@ -179,7 +174,6 @@ services:
       - router
 
   funny:
-    container_name: funny
     build:
       context: .
     entrypoint: python3 -m funny.main
@@ -208,7 +202,6 @@ services:
       - router
 
   client:
-    container_name: client
     build:
       context: .
     entrypoint: python3 -m client.main
