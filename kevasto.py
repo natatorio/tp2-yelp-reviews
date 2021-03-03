@@ -1,4 +1,5 @@
 import os
+from random import randint
 import time
 import requests
 import logging
@@ -21,18 +22,31 @@ class KeyValueVM(NopVM):
         print(commands)
         for command in commands:
             command = command["data"]
+
+            bucket_key = command["bucket"]
+            bucket = self.data.get(bucket_key)
+            if bucket is None:
+                bucket = {}
+                self.data[bucket_key] = bucket
+
             key = command["key"]
-            val = command.get("val")
             op = command.get("op", "put")
             if op == "+":
-                self.data[key] = val
+                val = command["val"]
+                bucket[key] = val
             elif op == "-":
-                self.data.pop(key, None)
+                bucket.pop(key, None)
 
         return None
 
     def results(self, query):
-        return self.data.get(query)
+        bucket = self.data.get(query["bucket"])
+        if bucket:
+            if query.get("key"):
+                return bucket.get(query["key"])
+            elif query.get("keys"):
+                return [bucket.get(key) for key in query["keys"]]
+        return {}
 
 
 def add_raft_routes(app, raft: Raft):
@@ -65,34 +79,132 @@ def add_raft_routes(app, raft: Raft):
         }
         return res
 
+    def response(data):
+        if data and data.get("success"):
+            return (data, 200)
+        else:
+            return (data, 500)
+
     @app.route("/snapshot")
     def snapshot():
-        raft.snapshot()
-        return {}
+        return response(raft.snapshot())
 
-    @app.route("/database/<key>", methods=["DELETE", "GET"])
-    def results(key):
+    @app.route("/db/<bucket>/<key>", methods=["DELETE", "GET"])
+    def results(bucket, key):
         if request.method == "DELETE":
-            return raft.append_entry(
-                {
-                    "op": "-",
-                    "key": key,
-                }
+            return response(
+                raft.append_entry(
+                    {
+                        "op": "-",
+                        "key": key,
+                        "bucket": bucket,
+                    }
+                )
             )
         else:
-            return raft.results(key)
+            return response(
+                raft.results(
+                    {
+                        "key": key,
+                        "bucket": bucket,
+                    }
+                )
+            )
 
-    @app.route("/database/<key>", methods=["PUT"])
-    def save(key):
-        return raft.append_entry(
-            {
-                "op": "+",
-                "key": key,
-                "val": request.get_json(),
-            }
+    @app.route("/bulk/<bucket>/<keys>", methods=["DELETE", "GET"])
+    def bulk_delete(bucket, keys):
+        if request.method == "DELETE":
+            return response(
+                raft.append_entry(
+                    [
+                        {
+                            "op": "-",
+                            "key": key,
+                            "bucket": bucket,
+                        }
+                        for key in keys.split(",")
+                    ]
+                )
+            )
+        else:
+            return response(
+                raft.results(
+                    {
+                        "bucket": bucket,
+                        "keys": keys.split(","),
+                    }
+                )
+            )
+
+    @app.route("/db/<bucket>/<key>", methods=["PUT"])
+    def save(bucket, key):
+        return response(
+            raft.append_entry(
+                {
+                    "op": "+",
+                    "bucket": bucket,
+                    "key": key,
+                    "val": request.get_json(),
+                }
+            )
         )
 
+    @app.route("/health", methods=["GET"])
+    def healthcheck():
+        return ("", 204)
+
     return raft
+
+
+def retry(times, func):
+    i = 0
+    ex = None
+    while i < times:
+        try:
+            res = func()
+            if res is not None:
+                return res
+        except Exception as e:
+            logging.exception("Retry")
+            ex = e
+
+        time.sleep(randint(500, 1000))
+        i += 1
+    if ex is not None:
+        raise ex
+    return None
+
+
+class Client:
+    def __init__(self, host) -> None:
+        self.retry_times = 50
+        self.host = host
+
+    def get(self, bucket, key):
+        return retry(10, lambda: self.__get__(f"http://{self.host}/db/{bucket}/{key}"))
+
+    def __get__(self, url):
+        res = requests.get(url)
+        content = res.json()
+        if res.status_code == 200:
+            return content["data"]
+        elif content.get("redirect"):
+            self.host = content["redirect"]
+        return None
+
+    def put(self, bucket, key, data):
+        return retry(
+            10, lambda: self.__put__(f"http://{self.host}/db/{bucket}/{key}", data)
+        )
+
+    def __put__(self, url, data):
+        res = requests.put(url, json=data)
+        content = res.json()
+        if res.status_code == 200:
+            return content["data"]
+        elif content.get("redirect"):
+            self.host = content["redirect"]
+        return None
 
 
 def manual_test():
