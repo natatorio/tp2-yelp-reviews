@@ -1,5 +1,5 @@
 import os
-from random import randint
+from random import random
 import time
 import requests
 import logging
@@ -168,7 +168,7 @@ def retry(times, func):
             logging.exception("Retry")
             ex = e
 
-        time.sleep(randint(500, 1000))
+        time.sleep(random() / 2 + 0.5)
         i += 1
     if ex is not None:
         raise ex

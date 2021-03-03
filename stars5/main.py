@@ -18,7 +18,6 @@ def main():
             len(allStars5ReviewsPerRelevantUser),
             " Relevant Users reviewing all with 5 star",
         )
-        querier.reply(("stars5", allStars5ReviewsPerRelevantUser))
         querier.close()
     healthServer.stop()
 

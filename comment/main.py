@@ -14,7 +14,6 @@ def main():
             len(allSameCommentReviewsPerRelevantUser),
             " Relevant users always commenting the same",
         )
-        querier.reply(("sameComment", allSameCommentReviewsPerRelevantUser))
         querier.close()
     healthServer.stop()
 

@@ -1,7 +1,7 @@
 import json
 import os
 from typing import Dict
-
+from kevasto import Client
 import pika
 
 
@@ -24,13 +24,10 @@ class Consumer:
         )
 
         self.replicas = int(os.environ["N_REPLICAS"])
-
-    def prepare(self):
-        return
+        self.state_store = Client('kevasto')
 
     def run(self):
         print("Start Consuming", self.exchange, self.routing_key)
-        self.prepare()
         try:
             for method, props, body in self.channel.consume(
                 self.consumer_queue, auto_ack=False
@@ -68,6 +65,17 @@ class Consumer:
         self.connection.process_data_events()
         self.connection.close()
 
+    def get_state(self):
+        return self.state_store.get(1, self.routing_key)
+
+    def put_state(self, state):
+        self.state_store.put(1, self.routing_key, state)
+
+    def is_state_done(self):
+        # TODO Caso borde: Si se cae entre que termino de aggregar y se resetea estado quedaría bloqueado intentando
+        # procesar un proximo mensaje que nunca va a llegar
+        return True
+
     def aggregate(self, data):
         return
 
@@ -90,34 +98,41 @@ class Consumer:
 class BusinessConsumer(Consumer):
     def __init__(self, exchange, routing_key):
         super().__init__(exchange, routing_key)
-        self.businessCities = {}
+        self.businessCities = self.get_state()
 
     def get_business_cities(self):
-        self.run()
+        if not self.is_state_done():
+            self.run()
         return self.businessCities
 
     def aggregate(self, data):
+        newBusinessCities = {}
         for elem in data:
-            self.businessCities[elem["business_id"]] = elem["city"]
+            newBusinessCities[elem['business_id']] = elem['city']
+        self.businessCities = {**self.get_state(), **newBusinessCities}
+        self.put_state(self.businessCities)
 
 
 class CounterBy(Consumer):
     def __init__(self, keyId, exchange, routing_key):
         self.keyId = keyId
-        self.keyCount = {}
         super().__init__(exchange, routing_key)
+        self.keyCount = self.get_state()
 
     def count(self):
-        self.run()
+        if not self.is_state_done():
+            self.run()
         return self.keyCount
 
     def aggregate(self, data):
+        self.keyCount = self.get_state()
         for elem in data:
             self.keyCount[elem[self.keyId]] = self.keyCount.get(elem[self.keyId], 0) + 1
+        self.put_state(self.keyCount)
 
 
 class JoinerCounterBy(CounterBy):
-    def prepare(self):
+    def join(self, aggregated):
         self.data = None
         self.data_queue_name = self.channel.queue_declare(
             queue=self.routing_key + ".JOIN_DATA", durable=True
@@ -150,26 +165,29 @@ class JoinerCounterBy(CounterBy):
                     )
                 else:
                     print("count_down done")
-
+                ret = self.join_function(aggregated)
+                self.reply((self.routing_key, ret))
                 self.channel.basic_ack(method.delivery_tag)
-                break
+                return ret
         finally:
             self.channel.cancel()
 
-    def join(self, dictA):
+    def join_function(self, dictA):
         return {k: v for (k, v) in dictA.items() if dictA[k] == self.data.get(k, 0)}
 
 
 class CommentQuerier(JoinerCounterBy):
     def aggregate(self, data):
+        self.keyCount = self.get_state()
         for elem in data:
             commentCount = self.keyCount.get(elem[self.keyId])
             if commentCount and commentCount[0] == elem["text"]:
                 self.keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
             else:
                 self.keyCount[elem[self.keyId]] = (elem["text"], 1)
+        self.put_state(self.keyCount)
 
-    def join(self, dictA):
+    def join_function(self, dictA):
         return {
             k: v[1] for (k, v) in dictA.items() if dictA[k][1] == self.data.get(k, 0)
         }
