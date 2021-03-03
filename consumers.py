@@ -24,7 +24,9 @@ class Consumer:
         )
 
         self.replicas = int(os.environ["N_REPLICAS"])
-        self.state_store = Client('kevasto')
+        self.state_store = Client("tp3_kevasto_1")
+        self.i = 0
+        self.start = 0
 
     def run(self):
         print("Start Consuming", self.exchange, self.routing_key)
@@ -33,10 +35,12 @@ class Consumer:
                 self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
+                self.state_store.put(self.routing_key, self.i, payload)
+                self.channel.basic_ack(method.delivery_tag)
                 data = payload["data"]
                 if data:
                     self.aggregate(data)
-                    self.channel.basic_ack(method.delivery_tag)
+                    # self.state_store.put(self.routing_key, "state", self.get_state())
                 else:
                     self.reply_to = props.reply_to
                     count_down = payload.get("count_down", self.replicas)
@@ -55,7 +59,6 @@ class Consumer:
                         )
                     else:
                         print("count_down done")
-                    self.channel.basic_ack(method.delivery_tag)
                     break
         finally:
             self.channel.cancel()
@@ -108,7 +111,7 @@ class BusinessConsumer(Consumer):
     def aggregate(self, data):
         newBusinessCities = {}
         for elem in data:
-            newBusinessCities[elem['business_id']] = elem['city']
+            newBusinessCities[elem["business_id"]] = elem["city"]
         self.businessCities = {**self.get_state(), **newBusinessCities}
         self.put_state(self.businessCities)
 

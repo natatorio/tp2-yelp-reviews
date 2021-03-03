@@ -41,7 +41,7 @@ services:
       - IP_FUNNY_MAPPER=funny_mapper
       - N_FUNNY_MAPPER=2
       - IP_KEVASTO=kevasto
-      - N_FUNNY_MAPPER=5
+      - N_KEVASTO=5
     networks:
       - my_network
     volumes:
