@@ -24,8 +24,6 @@ rabbit-restart:
 .PHONY: rabbit-restart
 
 docker-compose-up:
-	sudo docker-compose -f raft.yml up --build
-	sleep 5
 	time sudo docker-compose up --build --scale watchdog=2 --scale router=2 --scale stars5_mapper=2 --scale histogram_mapper=2 --scale funny_mapper=2 --scale comment_mapper=2 --scale kevasto=5
 .PHONY: docker-compose-up
 
