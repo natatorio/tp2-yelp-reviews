@@ -1,6 +1,8 @@
 import os
+import time
 import requests
 import logging
+import docker
 from flask import Flask, request
 
 from raft import NopVM, Raft
@@ -100,12 +102,30 @@ def manual_test():
     response = requests.get("http://localhost:8083/database/1")
 
 
+def get_name(str):
+    s = str.split("_")
+    if len(s) == 3:
+        return s[1] + "_" + s[2]
+    else:
+        return s[0]
+
+
 if __name__ == "__main__":
+    client = docker.from_env()
+    container = client.containers.get(os.environ["HOSTNAME"])
+    replicas = []
+    while len(replicas) < int(os.environ["N_REPLICAS"]):
+        replicas = [
+            c.name for c in client.containers.list() if os.environ["NAME"] in c.name
+        ]
+        time.sleep(0.5)
+    name = container.name
+    print(name, replicas)
     app = Flask(__name__)
     logging.basicConfig(level=logging.DEBUG)
     raft = Raft(
-        os.environ["NAME"],
-        os.environ["REPLICAS"].split(","),
+        name,
+        replicas,
         KeyValueVM(),
         housekeep=True,
     )

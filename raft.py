@@ -212,46 +212,48 @@ class Leader:
             if replica == self.context.name:
                 self.match_index[replica] = len(self.context.entries)
                 continue
-
-            if self.snapshot_index[replica] != self.context.snapshot_version:
-                res = self.context.fetch(
-                    replica,
-                    "append_entries",
-                    {
-                        "term": self.context.current_term,
-                        "leader_id": self.context.name,
-                        "snapshot": self.context.machine.snapshot(),
-                        "snapshot_version": self.context.snapshot_version,
-                    },
-                )
-                self.next_index[replica] = max(len(self.context.entries) - 1, 0) + 1
-                self.match_index[replica] = 0
-            else:
-                prev_log_index = self.next_index[replica] - 1
-                prev_log_term = self.context.entries[prev_log_index]["term"]
-                res = self.context.fetch(
-                    replica,
-                    "append_entries",
-                    {
-                        "term": self.context.current_term,
-                        "leader_id": self.context.name,
-                        "prev_log_index": prev_log_index,
-                        "prev_log_term": prev_log_term,
-                        "entries": self.context.entries[(prev_log_index + 1) :],
-                        "leader_commit": self.context.commit_index,
-                        "snapshot_version": self.context.snapshot_version,
-                    },
-                )
-            if res:
-                if res["success"]:
-                    self.next_index[replica] = len(self.context.entries)
-                    self.match_index[replica] = len(self.context.entries) - 1
-                elif res["snapshot_version"] < self.context.snapshot_version:
-                    self.next_index[replica] = 1
-                self.snapshot_index[replica] = res["snapshot_version"]
-            else:
-                self.next_index[replica] -= 1
-
+            res = None
+            try:
+                if self.snapshot_index[replica] != self.context.snapshot_version:
+                    res = self.context.fetch(
+                        replica,
+                        "append_entries",
+                        {
+                            "term": self.context.current_term,
+                            "leader_id": self.context.name,
+                            "snapshot": self.context.machine.snapshot(),
+                            "snapshot_version": self.context.snapshot_version,
+                        },
+                    )
+                    self.next_index[replica] = max(len(self.context.entries) - 1, 0) + 1
+                    self.match_index[replica] = 0
+                else:
+                    prev_log_index = self.next_index[replica] - 1
+                    prev_log_term = self.context.entries[prev_log_index]["term"]
+                    res = self.context.fetch(
+                        replica,
+                        "append_entries",
+                        {
+                            "term": self.context.current_term,
+                            "leader_id": self.context.name,
+                            "prev_log_index": prev_log_index,
+                            "prev_log_term": prev_log_term,
+                            "entries": self.context.entries[(prev_log_index + 1) :],
+                            "leader_commit": self.context.commit_index,
+                            "snapshot_version": self.context.snapshot_version,
+                        },
+                    )
+                if res:
+                    if res["success"]:
+                        self.next_index[replica] = len(self.context.entries)
+                        self.match_index[replica] = len(self.context.entries) - 1
+                    elif res["snapshot_version"] < self.context.snapshot_version:
+                        self.next_index[replica] = 1
+                    self.snapshot_index[replica] = res["snapshot_version"]
+                else:
+                    self.next_index[replica] -= 1
+            except:
+                logger.exception(f"Replica response: {res}")
         commited_sorted_by_mayority = sort_by_mayority(self.match_index.values())
         logger.info(f"commited: {commited_sorted_by_mayority}")
         for commited in commited_sorted_by_mayority:

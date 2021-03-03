@@ -17,7 +17,7 @@ services:
       - PYTHONUNBUFFERED=1
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
-      - IP_PREFIX=tp2-yelp-reviews
+      - IP_PREFIX=tp3
       - IP_ROUTER=router
       - N_ROUTER=2
       - IP_BUSSINESS=business
@@ -40,6 +40,8 @@ services:
       - N_HISTOGRAM_MAPPER=2
       - IP_FUNNY_MAPPER=funny_mapper
       - N_FUNNY_MAPPER=2
+      - IP_KEVASTO=kevasto
+      - N_FUNNY_MAPPER=5
     networks:
       - my_network
     volumes:
@@ -219,6 +221,17 @@ services:
       - ../data:/data:rw
     depends_on:
       - rabbitmq
+
+  kevasto:
+    build:
+      context: .
+    entrypoint: python3 -m kevasto
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NAME=kevasto
+      - N_REPLICAS=5
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 networks:
   my_network:
