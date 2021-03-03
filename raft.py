@@ -4,15 +4,33 @@ import os
 import random
 from threading import RLock
 from scheduler import Scheduler
-from store import create_if_not_exists
 import requests
 import logging
 
 HEARBEAT_TIMEOUT = 5000
+if os.environ.get("HEARBEAT_TIMEOUT"):
+    HEARBEAT_TIMEOUT = int(os.environ["HEARBEAT_TIMEOUT"])
+
+ELECTION_TIMEOUT = 200
+if os.environ.get("ELECTION_TIMEOUT"):
+    ELECTION_TIMEOUT = int(int(os.environ["ELECTION_TIMEOUT"]) / 100)
+
 HOUSEKEEPING_TIMEOUT = 2 * 60 * 1000
+if os.environ.get("HOUSEKEEPING_TIMEOUT"):
+    HOUSEKEEPING_TIMEOUT = int(os.environ["HOUSEKEEPING_TIMEOUT"]) * 60 * 1000
+
 HOUSEKEEPING_MAX_ENTRY = 100
+if os.environ.get("HOUSEKEEPING_MAX_ENTRY"):
+    HOUSEKEEPING_MAX_ENTRY = os.environ["HOUSEKEEPING_MAX_ENTRY"]
 
 logger = logging.getLogger("raft")
+
+
+def create_if_not_exists(file_path):
+    if not os.path.exists(file_path):
+        f = open(file_path, "w+")
+        f.close()
+    return file_path
 
 
 def swap(src, dest, open_file=""):
@@ -29,7 +47,7 @@ def write_json_line(f, data):
 
 
 def generate_election_timeout():
-    return random.randint(100, 200) * 100
+    return random.randint(ELECTION_TIMEOUT, ELECTION_TIMEOUT + 200) * 100
 
 
 class Follower:
@@ -167,8 +185,8 @@ class Leader:
         }
         self.match_index = {replica: 0 for replica in self.context.replicas}
         self.context.schedule(self.heartbeat_timeout, self.heartbeat)
-        self.context.schedule(self.housekeeping_timeout, self.housekeeping)
-        # TODO commit blank to force replication sync
+        if self.context.housekeep:
+            self.context.schedule(self.housekeeping_timeout, self.housekeeping)
 
     def housekeeping(self):
         if self.context.voted_for == self.context.name:
@@ -327,14 +345,21 @@ class Raft:
             if os.path.exists(base_path + ".snapshot.tmp"):
                 os.remove(base_path + ".snapshot.tmp")
 
-    def __init__(self, name, replicas, machine=NopVM(), base_path="/tmp/raft") -> None:
+    def __init__(
+        self,
+        name,
+        replicas,
+        machine=NopVM(),
+        base_path="/tmp/raft",
+        housekeep=False,
+    ) -> None:
         self.__fix_backups__(base_path)
 
         self.name = name
         self.replicas = replicas
         self.machine = machine
         self.voted_for = None
-
+        self.housekeep = housekeep
         self.config = open(create_if_not_exists(base_path + ".conf"), "r+")
         self.config.seek(0, 0)
         line = self.config.readline()
@@ -583,113 +608,3 @@ class Raft:
 
     def snapshot(self):
         return self.state.snapshot()
-
-
-from flask import Flask, request
-import os
-
-
-def add_raft_routes(app, raft: Raft):
-    @app.route("/request_vote", methods=["POST"])
-    def request_vote():
-        data = request.get_json()
-        return raft.request_vote(data)
-
-    @app.route("/append_entries", methods=["POST"])
-    def append_entries():
-        data = request.get_json()
-        return raft.append_entries(data)
-
-    @app.route("/append_entry", methods=["POST"])
-    def append_entry():
-        data = request.get_json()
-        return raft.append_entry(data)
-
-    @app.route("/show")
-    def show():
-        res = {
-            "entries": raft.entries,
-            "voted_for": raft.voted_for,
-            "current_term": raft.current_term,
-            "commit_index": raft.commit_index,
-            "replicas": raft.replicas,
-            "name": raft.name,
-            "snapshot_version": raft.snapshot_version,
-            "state": raft.state.__class__.__name__,
-        }
-        return res
-
-    @app.route("/snapshot")
-    def snapshot():
-        raft.snapshot()
-        return {}
-
-    @app.route("/database/<key>", methods=["DELETE", "GET"])
-    def results(key):
-        if request.method == "DELETE":
-            return raft.append_entry(
-                {
-                    "op": "-",
-                    "key": key,
-                }
-            )
-        else:
-            return raft.results(key)
-
-    @app.route("/database/<key>", methods=["PUT"])
-    def save(key):
-        return raft.append_entry(
-            {
-                "op": "+",
-                "key": key,
-                "val": request.get_json(),
-            }
-        )
-
-    return raft
-
-
-class KeyValueVM(NopVM):
-    data = {}
-
-    def reset(self, context, snapshot):
-        self.data = snapshot
-
-    def snapshot(self):
-        return self.data
-
-    def run(self, commands):
-        print(commands)
-        for command in commands:
-            command = command["data"]
-            key = command["key"]
-            val = command.get("val")
-            op = command.get("op", "put")
-            if op == "+":
-                self.data[key] = val
-            elif op == "-":
-                self.data.pop(key, None)
-
-        return None
-
-    def results(self, query):
-        return self.data.get(query)
-
-
-def test():
-    response = requests.post("http://localhost:8083/append_entry", json={"a": "a"})
-    for i in range(10, 15):
-        requests.put(f"http://localhost:8082/database/{i}", json={"index": i})
-    response = requests.get("http://localhost:8083/database/1")
-
-
-if __name__ == "__main__":
-    app = Flask(__name__)
-    logging.basicConfig(level=logging.DEBUG)
-    raft = Raft(
-        os.environ["NAME"],
-        os.environ["REPLICAS"].split(","),
-        KeyValueVM(),
-    )
-    add_raft_routes(app, raft)
-    app.run(host="0.0.0.0", port=80, threaded=True)

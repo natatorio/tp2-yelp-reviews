@@ -3,7 +3,7 @@ services:
   raft1:
     build:
       context: .
-    entrypoint: python3 -m raft
+    entrypoint: python3 -m kevasto
     environment:
       - PYTHONUNBUFFERED=1
       - NAME=raft1
@@ -13,7 +13,7 @@ services:
   raft2:
     build:
       context: .
-    entrypoint: python3 -m raft
+    entrypoint: python3 -m kevasto
     environment:
       - PYTHONUNBUFFERED=1
       - NAME=raft2
@@ -23,7 +23,7 @@ services:
   raft3:
     build:
       context: .
-    entrypoint: python3 -m raft
+    entrypoint: python3 -m kevasto
     environment:
       - PYTHONUNBUFFERED=1
       - NAME=raft3
