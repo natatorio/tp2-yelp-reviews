@@ -180,31 +180,41 @@ class Client:
         self.retry_times = 50
         self.host = host
 
-    def get(self, bucket, key):
-        return retry(10, lambda: self.__get__(f"http://{self.host}/db/{bucket}/{key}"))
+    def delete(self, bucket, key):
+        def __delete__(url):
+            res = requests.delete(url)
+            content = res.json()
+            if res.status_code == 200:
+                return content["data"]
+            elif content.get("redirect"):
+                self.host = content["redirect"]
+            return None
 
-    def __get__(self, url):
-        res = requests.get(url)
-        content = res.json()
-        if res.status_code == 200:
-            return content["data"]
-        elif content.get("redirect"):
-            self.host = content["redirect"]
-        return None
+        return retry(10, lambda: __delete__(f"http://{self.host}/db/{bucket}/{key}"))
+
+    def get(self, bucket, key):
+        def __get__(url):
+            res = requests.get(url)
+            content = res.json()
+            if res.status_code == 200:
+                return content["data"]
+            elif content.get("redirect"):
+                self.host = content["redirect"]
+            return None
+
+        return retry(10, lambda: __get__(f"http://{self.host}/db/{bucket}/{key}"))
 
     def put(self, bucket, key, data):
-        return retry(
-            10, lambda: self.__put__(f"http://{self.host}/db/{bucket}/{key}", data)
-        )
+        def __put__(url, data):
+            res = requests.put(url, json=data)
+            content = res.json()
+            if res.status_code == 200:
+                return content["data"]
+            elif content.get("redirect"):
+                self.host = content["redirect"]
+            return None
 
-    def __put__(self, url, data):
-        res = requests.put(url, json=data)
-        content = res.json()
-        if res.status_code == 200:
-            return content["data"]
-        elif content.get("redirect"):
-            self.host = content["redirect"]
-        return None
+        return retry(10, lambda: __put__(f"http://{self.host}/db/{bucket}/{key}", data))
 
 
 def manual_test():
