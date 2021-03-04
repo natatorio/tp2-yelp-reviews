@@ -7,17 +7,17 @@ from scheduler import Scheduler
 import requests
 import logging
 
-HEARBEAT_TIMEOUT = 5000
+HEARBEAT_TIMEOUT = 500
 if os.environ.get("HEARBEAT_TIMEOUT"):
     HEARBEAT_TIMEOUT = int(os.environ["HEARBEAT_TIMEOUT"])
 
-ELECTION_TIMEOUT = 200
+ELECTION_TIMEOUT = 1000
 if os.environ.get("ELECTION_TIMEOUT"):
-    ELECTION_TIMEOUT = int(int(os.environ["ELECTION_TIMEOUT"]) / 100)
+    ELECTION_TIMEOUT = int(int(os.environ["ELECTION_TIMEOUT"]))
 
-HOUSEKEEPING_TIMEOUT = 2 * 60 * 1000
+HOUSEKEEPING_TIMEOUT = 15000
 if os.environ.get("HOUSEKEEPING_TIMEOUT"):
-    HOUSEKEEPING_TIMEOUT = int(os.environ["HOUSEKEEPING_TIMEOUT"]) * 60 * 1000
+    HOUSEKEEPING_TIMEOUT = int(os.environ["HOUSEKEEPING_TIMEOUT"])
 
 HOUSEKEEPING_MAX_ENTRY = 100
 if os.environ.get("HOUSEKEEPING_MAX_ENTRY"):
@@ -47,7 +47,7 @@ def write_json_line(f, data):
 
 
 def generate_election_timeout():
-    return random.randint(ELECTION_TIMEOUT, ELECTION_TIMEOUT + 200) * 100
+    return random.randint(0, 30) * 10 + ELECTION_TIMEOUT
 
 
 class Follower:

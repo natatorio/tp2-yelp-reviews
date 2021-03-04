@@ -19,7 +19,7 @@ class KeyValueVM(NopVM):
         return self.data
 
     def run(self, commands):
-        print(commands)
+        print(f"applying {len(commands)} commands")
         for command in commands:
             command = command["data"]
 
@@ -214,7 +214,9 @@ class Client:
                 self.host = content["redirect"]
             return None
 
-        return retry(10, lambda: __put__(f"http://{self.host}:80/db/{bucket}/{key}", data))
+        return retry(
+            10, lambda: __put__(f"http://{self.host}:80/db/{bucket}/{key}", data)
+        )
 
 
 def manual_test():
