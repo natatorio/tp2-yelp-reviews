@@ -75,7 +75,7 @@ def add_raft_routes(app, raft: Raft):
                 "snapshot_index": raft.state.snapshot_index,
             }
         res = {
-            "entries": raft.entries,
+            # "entries": raft.entries,
             "voted_for": raft.voted_for,
             "current_term": raft.current_term,
             "commit_index": raft.commit_index,
@@ -167,11 +167,12 @@ def add_raft_routes(app, raft: Raft):
 def retry(times, func):
     i = 0
     ex = None
+    res = None
     while i < times:
-        print(f"retry {i}")
+        print(f"retry {i} {str(ex)} {res}")
         try:
-            res = func()
-            if res is not None:
+            done, res = func()
+            if done:
                 return res
         except Exception as e:
             logging.exception("Retry")
@@ -194,10 +195,10 @@ class Client:
             res = requests.delete(url)
             content = res.json()
             if res.status_code == 200:
-                return True
+                return (True, None)
             elif content.get("redirect"):
                 self.host = content["redirect"]
-            return None
+            return (False, res.text)
 
         return retry(10, lambda: __delete__(f"http://{self.host}:80/db/{bucket}/{key}"))
 
@@ -206,10 +207,10 @@ class Client:
             res = requests.get(url)
             content = res.json()
             if res.status_code == 200:
-                return content["data"]
+                return (True, content["data"])
             elif content.get("redirect"):
                 self.host = content["redirect"]
-            return None
+            return (False, res.text)
 
         return retry(10, lambda: __get__(f"http://{self.host}:80/db/{bucket}/{key}"))
 
@@ -218,10 +219,10 @@ class Client:
             res = requests.put(url, json=data)
             content = res.json()
             if res.status_code == 200:
-                return True
+                return (True, None)
             elif content.get("redirect"):
                 self.host = content["redirect"]
-            return None
+            return (False, res.text)
 
         return retry(
             10, lambda: __put__(f"http://{self.host}:80/db/{bucket}/{key}", data)

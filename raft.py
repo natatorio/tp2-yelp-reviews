@@ -8,11 +8,10 @@ from scheduler import Scheduler
 import requests
 import logging
 
-HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", "500"))
-ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", "1000"))
+HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", "2000"))
+FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", "10000"))
 HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", "15000"))
-HOUSEKEEPING_MAX_ENTRY = int(os.environ.get("HOUSEKEEPING_MAX_ENTRY", "100"))
-HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 2)) * 1024 * 1024
+HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 250)) * 1024 * 1024
 
 logger = logging.getLogger("raft")
 
@@ -37,8 +36,14 @@ def write_json_line(f, data):
     f.write(json.dumps(data) + "\n")
 
 
+ELECTION_TIMEOUT = 100
+
+
 def generate_election_timeout():
-    return random.randint(0, 30) * 10 + ELECTION_TIMEOUT
+    global ELECTION_TIMEOUT
+    timeout = random.randint(0, 3) * 500 + ELECTION_TIMEOUT
+    ELECTION_TIMEOUT = FINAL_ELECTION_TIMEOUT
+    return timeout
 
 
 class Follower:
@@ -49,6 +54,8 @@ class Follower:
         self.context.schedule(self.election_timeout, self.on_election_timeout)
 
     def on_election_timeout(self):
+        if self.context.state != self:
+            return
         elapsed_time = datetime.now() - self.last_message_time
         if elapsed_time.total_seconds() * 1000 >= self.election_timeout:
             self.context.as_candidate()
@@ -56,8 +63,16 @@ class Follower:
             self.context.schedule(self.election_timeout, self.on_election_timeout)
 
     def append_entries(self, req):
-        self.last_message_time = datetime.now()
-        return self.context.__append_entries__(req)
+        if req["leader_id"] == self.context.voted_for:
+            self.last_message_time = datetime.now()
+            return self.context.__append_entries__(req)
+        if req["term"] < self.context.current_term:
+            self.context.as_candidate()
+        return {
+            "success": False,
+            "snapshot_version": self.context.snapshot_version,
+            "term": self.context.current_term,
+        }
 
     def request_vote(self, req):
         self.last_message_time = datetime.now()
@@ -80,6 +95,8 @@ class Candidate:
         self.context.schedule(0, self.start_election)
 
     def start_election(self):
+        if self.context.state != self:
+            return
         logger.info(f"{self.context.name} started election")
         election_term = self.context.current_term + 1
         if not self.context.__vote__(self.context.name, election_term, self):
@@ -171,22 +188,28 @@ class Leader:
         }
         self.match_index = {replica: 0 for replica in self.context.replicas}
         self.context.schedule(self.heartbeat_timeout, self.heartbeat)
+        self.last_timestamp = datetime.now()
         if self.context.housekeep:
             self.context.schedule(self.housekeeping_timeout, self.housekeeping)
 
     def housekeeping_needed(self):
-        return (
-            self.context.commit_index > HOUSEKEEPING_MAX_ENTRY
-            or self.context.log.tell() > HOUSEKEEPING_MAX_SIZE
-        )
+        return self.context.log.tell() > HOUSEKEEPING_MAX_SIZE
 
     def housekeeping(self):
+        if self.context.state != self:
+            return
         if self.context.voted_for == self.context.name:
             if self.housekeeping_needed():
                 self.snapshot()
             self.context.schedule(self.housekeeping_timeout, self.housekeeping)
 
     def heartbeat(self):
+        if self.context.state != self:
+            return
+        elapsed_time = datetime.now() - self.last_timestamp
+        if elapsed_time.total_seconds() * 1000 < self.heartbeat_timeout - 50:
+            self.context.schedule(self.heartbeat_timeout, self.heartbeat)
+
         if self.context.voted_for == self.context.name:
             commited = self.update_replicas()
             if commited > self.context.commit_index:
@@ -255,7 +278,6 @@ class Leader:
                     < self.context.snapshot_version
                 ):
                     self.next_index[replica] = 1
-                    self.match_index[replica] = 0
                     self.snapshot_index[replica] = res.get(
                         "snapshot_version", self.context.snapshot_version
                     )
@@ -275,6 +297,7 @@ class Leader:
         return self.context.commit_index
 
     def append_entry(self, req):
+        self.last_timestamp = datetime.now()
         entry_index = len(self.context.entries)
         self.context.__append_entry__(
             entry_index,
@@ -403,13 +426,13 @@ class Raft:
                 break
             self.seek.append(seek)
             entries.append(json.loads(line))
+
+        self.entries = [{"term": 0, "data": None}]
+        self.current_term = 0
         if len(entries) > 0:
-            self.current_term = self.entries[-1]["term"]
+            self.current_term = entries[-1]["term"]
             self.entries = entries
             self.machine.run(self.entries[0 : self.commit_index + 1])
-        else:
-            self.entries = [{"term": 0, "data": None}]
-            self.current_term = 0
 
         self.lock = RLock()
         self.scheduler = Scheduler()
@@ -458,17 +481,17 @@ class Raft:
         self.config.flush()
 
     def __append_entries__(self, req):
-        if req["snapshot_version"] > self.snapshot_version:
-            snapshot = req.get("snapshot")
-            if snapshot is not None:
+        snapshot = req.get("snapshot")
+        if snapshot is not None and req["snapshot_version"] >= self.snapshot_version:
+            if req["snapshot_version"] > self.snapshot_version:
                 self.machine.reset(self, snapshot)
                 self.save_snapshot(req["snapshot_version"], [])
             return {
                 "term": self.current_term,
-                "success": False,
+                "success": True,
                 "snapshot_version": self.snapshot_version,
             }
-        elif req["snapshot_version"] < self.snapshot_version:
+        if req["snapshot_version"] != self.snapshot_version:
             return {
                 "term": self.current_term,
                 "success": False,
@@ -590,19 +613,16 @@ class Raft:
     def as_candidate(self):
         with self.lock:
             logger.info(f"{self.name} as candidate")
-            self.state = None
             self.state = Candidate(self)
 
     def as_leader(self):
         with self.lock:
             logger.info(f"{self.name} as leader")
-            self.state = None
             self.state = Leader(self)
 
     def as_follower(self):
         with self.lock:
             logger.info(f"{self.name} as follower")
-            self.state = None
             self.state = Follower(self)
 
     def fetch(self, replica, service, data):
