@@ -160,18 +160,18 @@ def retry(times, func):
     i = 0
     ex = None
     while i < times:
-        try:
-            res = func()
-            if res is not None:
-                return res
-        except Exception as e:
-            logging.exception("Retry")
-            ex = e
+    # try:
+        res = func()
+        if res is not None:
+            return res
+    # except Exception as e:
+        logging.exception("Retry")
+        # ex = e
 
-        time.sleep(random() / 2 + 0.5)
-        i += 1
-    if ex is not None:
-        raise ex
+    time.sleep(random() / 2 + 0.5)
+    i += 1
+# if ex is not None:
+#     raise ex
     return None
 
 
@@ -190,19 +190,22 @@ class Client:
                 self.host = content["redirect"]
             return None
 
-        return retry(10, lambda: __delete__(f"http://{self.host}/db/{bucket}/{key}"))
+        return retry(10, lambda: __delete__(f"http://{self.host}:80/db/{bucket}/{key}"))
 
     def get(self, bucket, key):
+        print("PRINTTTTTTTTTTTTTT")
+        print("HOST:{}".format(self.host))
         def __get__(url):
             res = requests.get(url)
             content = res.json()
+            print(content)
             if res.status_code == 200:
                 return content["data"]
             elif content.get("redirect"):
                 self.host = content["redirect"]
             return None
 
-        return retry(10, lambda: __get__(f"http://{self.host}/db/{bucket}/{key}"))
+        return retry(10, lambda: __get__(f"http://{self.host}:80/db/{bucket}/{key}"))
 
     def put(self, bucket, key, data):
         def __put__(url, data):
@@ -213,8 +216,7 @@ class Client:
             elif content.get("redirect"):
                 self.host = content["redirect"]
             return None
-
-        return retry(10, lambda: __put__(f"http://{self.host}/db/{bucket}/{key}", data))
+        return retry(10, lambda: __put__(f"http://{self.host}:80/db/{bucket}/{key}", data))
 
 
 def manual_test():

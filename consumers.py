@@ -3,6 +3,7 @@ import os
 from typing import Dict
 from kevasto import Client
 import pika
+import time
 
 
 class Consumer:
@@ -24,6 +25,7 @@ class Consumer:
         )
 
         self.replicas = int(os.environ["N_REPLICAS"])
+        time.sleep(3)
         self.state_store = Client("tp3_kevasto_1")
         self.i = 0
         self.start = 0
@@ -69,10 +71,10 @@ class Consumer:
         self.connection.close()
 
     def get_state(self):
-        return self.state_store.get(1, self.routing_key)
+        return self.state_store.get(self.routing_key, "state")
 
     def put_state(self, state):
-        self.state_store.put(1, self.routing_key, state)
+        self.state_store.put(self.routing_key, "state", state)
 
     def is_state_done(self):
         # TODO Caso borde: Si se cae entre que termino de aggregar y se resetea estado quedaría bloqueado intentando
