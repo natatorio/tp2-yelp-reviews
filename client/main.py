@@ -19,8 +19,8 @@ def main():
     amqp_url = os.environ["AMQP_URL"]
     parameters = pika.URLParameters(amqp_url)
 
-    time.sleep(10)
-    while True:
+    for session_id in range(100):
+        time.sleep(10)
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
         channel.exchange_declare(exchange="data", exchange_type="direct")
@@ -33,7 +33,13 @@ def main():
                 while lines and item_count < max_size:
                     chunk = [json.loads(line) for line in lines]
                     item_count += len(chunk)
-                    publish(body={"data": chunk})
+                    publish(
+                        body={
+                            "data": chunk,
+                            "session_id": session_id,
+                            "id": item_count,
+                        }
+                    )
                     lines = f.readlines(chunk_size)
             print(item_count, "items read from ", file_path)
 
@@ -46,7 +52,13 @@ def main():
                         while lines and item_count < max_size:
                             chunk = [json.loads(line) for line in lines]
                             item_count += len(chunk)
-                            publish(body={"data": chunk})
+                            publish(
+                                body={
+                                    "data": chunk,
+                                    "session_id": session_id,
+                                    "id": item_count,
+                                }
+                            )
                             lines = f.readlines(chunk_size)
             print(item_count, "items read from ", file_path)
 
@@ -65,7 +77,12 @@ def main():
             channel.basic_publish(
                 exchange="data",
                 routing_key="business",
-                body=json.dumps({"data": None}),
+                body=json.dumps(
+                    {
+                        "data": None,
+                        "session_id": session_id,
+                    }
+                ),
             )
 
         print("Callback queue setup")
@@ -89,7 +106,13 @@ def main():
                 properties=pika.BasicProperties(
                     reply_to=callback_queue,
                 ),
-                body=json.dumps({"data": None}),
+                body=json.dumps(
+                    {
+                        "data": None,
+                        "reply": callback_queue,
+                        "session_id": session_id,
+                    }
+                ),
             )
 
         print("Waiting for Report")
@@ -105,6 +128,7 @@ def main():
 
         channel.cancel()
         connection.close()
+        break
 
 
 if __name__ == "__main__":
