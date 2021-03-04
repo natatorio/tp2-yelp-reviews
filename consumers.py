@@ -1,6 +1,8 @@
 import json
 import os
-from typing import Dict
+from typing import Dict, List, Tuple
+
+from pika.adapters.blocking_connection import BlockingChannel
 from kevasto import Client
 import pika
 import time
@@ -29,6 +31,7 @@ class Consumer:
         self.state_store = Client("tp3_kevasto_1")
         self.i = 0
         self.start = 0
+        self.reply_to = None
 
     def run(self):
         print("Start Consuming", self.exchange, self.routing_key)
@@ -37,7 +40,7 @@ class Consumer:
                 self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
-                self.state_store.put(self.routing_key, self.i, payload)
+                # self.state_store.put(self.routing_key, self.i, payload)
                 self.channel.basic_ack(method.delivery_tag)
                 data = payload["data"]
                 if data:
@@ -45,7 +48,8 @@ class Consumer:
                     # self.state_store.put(self.routing_key, "state", self.get_state())
                 else:
                     self.reply_to = props.reply_to
-                    count_down = payload.get("count_down", self.replicas)
+                    print(payload.get("reply"))
+                    count_down = payload.pop("count_down", self.replicas)
                     if count_down > 1:
                         print("count_down", count_down)
                         self.channel.basic_publish(
@@ -54,6 +58,7 @@ class Consumer:
                             properties=props,
                             body=json.dumps(
                                 {
+                                    **payload,
                                     "data": None,
                                     "count_down": count_down - 1,
                                 }
@@ -79,7 +84,7 @@ class Consumer:
     def is_state_done(self):
         # TODO Caso borde: Si se cae entre que termino de aggregar y se resetea estado quedaría bloqueado intentando
         # procesar un proximo mensaje que nunca va a llegar
-        return True
+        return False
 
     def aggregate(self, data):
         return
@@ -154,7 +159,7 @@ class JoinerCounterBy(CounterBy):
             ):
                 payload = json.loads(body.decode("utf-8"))
                 self.data = payload["data"]
-                count_down = payload.get("count_down", self.replicas)
+                count_down = payload.pop("count_down", self.replicas)
                 if count_down > 1:
                     print("count_down", count_down)
                     self.channel.basic_publish(
@@ -163,6 +168,7 @@ class JoinerCounterBy(CounterBy):
                         properties=props,
                         body=json.dumps(
                             {
+                                **payload,
                                 "data": self.data,
                                 "count_down": count_down - 1,
                             }
@@ -198,24 +204,65 @@ class CommentQuerier(JoinerCounterBy):
         }
 
 
-class Reducer:
-    def run():
+from pipe import Pipe
+
+
+class Fold:
+    pipeIn: Pipe
+    pipesOut: List[Pipe]
+    replicas: int
+    N: int
+
+    def recover(self):
+        return (0, {})
+
+    def save_item(self, item):
+        pass
+
+    def truncate_items(self, start, n):
+        pass
+
+    def save_state(self, n, state):
+        pass
+
+    def consume(self, channel: BlockingChannel, fold):
         try:
-            for method, props, body in self.channel.consume(queue, auto_ack=false):
-                data = json.loads(body.decode("utf-8"))
-                if not self.is_dup(data):
-                    self.state = aggregate(self.state, data)
-                    self.state_store.next_state(self.state, data)
-                    channel.basic_ack(method.delivery_tag)
-                    self.dup_register.done(data)
-                    self.state_store.done()
-                channel.basic_ack(method.delivery_tag)
+            start, res = self.recover()
+            n = start
+            for ack, payload in self.pipeIn.recv(channel):
+                self.save_item(payload)
+                ack()
+                data = payload["data"]
+                if data:
+                    res = fold(res, data)
+                    if n % self.N == 0:
+                        self.save_state(n, res)
+                        self.truncate_items(start, n)
+                        start = n
+                else:
+                    count_down = payload.get("count_down", self.replicas)
+                    if count_down <= 1:
+                        print("count_down done, forward eof")
+                        for pipeOut in self.pipesOut:
+                            pipeOut.send(channel, data)
+                        res = {}
+                    else:
+                        print("count_down", count_down)
+                        self.pipeIn.send(
+                            channel,
+                            {
+                                **payload,
+                                "count_down": count_down - 1,
+                            },
+                        )
+                    break
         finally:
             channel.cancel()
 
-    def start(self):
-        [state_n, state_n_1, last_item] = self.fetch_workspace(self.pname)
-        if last_item is not None and self.is_dup(last_item):
-            self.state = self.fetch_state(state_n_1)
-        else:
-            self.state = self.fetch_state(state_n)
+
+class Join:
+    def consume_left(self):
+        pass
+
+    def consume_right(self):
+        pass

@@ -51,18 +51,18 @@ class Mapper:
                         exchange=self.outExchange,
                         routing_key=self.routing_key,
                         properties=props,
-                        body=json.dumps({"data": mapped_data}),
+                        body=json.dumps({**payload, "data": mapped_data}),
                     )
                     self.channel.basic_ack(method.delivery_tag)
                 else:
-                    count_down = payload.get("count_down", self.replicas)
+                    count_down = payload.pop("count_down", self.replicas)
                     if count_down <= 1:
                         print("count_down done, forward eof")
                         self.channel.basic_publish(
                             exchange=self.outExchange,
                             routing_key=self.routing_key,
                             properties=props,
-                            body=json.dumps({"data": None}),
+                            body=json.dumps({**payload, "data": None}),
                         )
                     else:
                         print("count_down", count_down)
@@ -72,6 +72,7 @@ class Mapper:
                             properties=props,
                             body=json.dumps(
                                 {
+                                    **payload,
                                     "data": None,
                                     "count_down": count_down - 1,
                                 }
@@ -104,7 +105,7 @@ class FunnyMapper(Mapper):
             ):
                 payload = json.loads(body.decode("utf-8"))
                 self.data = payload["data"]
-                count_down = payload.get("count_down", self.replicas)
+                count_down = payload.pop("count_down", self.replicas)
                 if count_down > 1:
                     print("count_down:", count_down)
                     self.channel.basic_publish(
@@ -113,6 +114,7 @@ class FunnyMapper(Mapper):
                         properties=props,
                         body=json.dumps(
                             {
+                                **payload,
                                 "data": self.data,
                                 "count_down": count_down - 1,
                             }
