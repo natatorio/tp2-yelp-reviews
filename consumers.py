@@ -40,7 +40,7 @@ class Consumer:
                 self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
-                # self.state_store.put(self.routing_key, self.i, payload)
+                self.state_store.put(self.routing_key, payload["id"], payload)
                 self.channel.basic_ack(method.delivery_tag)
                 data = payload["data"]
                 if data:

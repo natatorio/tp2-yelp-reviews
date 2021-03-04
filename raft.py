@@ -3,25 +3,16 @@ import json
 import os
 import random
 from threading import RLock
+
 from scheduler import Scheduler
 import requests
 import logging
 
-HEARBEAT_TIMEOUT = 500
-if os.environ.get("HEARBEAT_TIMEOUT"):
-    HEARBEAT_TIMEOUT = int(os.environ["HEARBEAT_TIMEOUT"])
-
-ELECTION_TIMEOUT = 1000
-if os.environ.get("ELECTION_TIMEOUT"):
-    ELECTION_TIMEOUT = int(int(os.environ["ELECTION_TIMEOUT"]))
-
-HOUSEKEEPING_TIMEOUT = 15000
-if os.environ.get("HOUSEKEEPING_TIMEOUT"):
-    HOUSEKEEPING_TIMEOUT = int(os.environ["HOUSEKEEPING_TIMEOUT"])
-
-HOUSEKEEPING_MAX_ENTRY = 100
-if os.environ.get("HOUSEKEEPING_MAX_ENTRY"):
-    HOUSEKEEPING_MAX_ENTRY = os.environ["HOUSEKEEPING_MAX_ENTRY"]
+HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", "500"))
+ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", "1000"))
+HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", "15000"))
+HOUSEKEEPING_MAX_ENTRY = int(os.environ.get("HOUSEKEEPING_MAX_ENTRY", "100"))
+HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 2)) * 1024 * 1024
 
 logger = logging.getLogger("raft")
 
@@ -66,14 +57,7 @@ class Follower:
 
     def append_entries(self, req):
         self.last_message_time = datetime.now()
-        if self.context.voted_for == req["leader_id"]:
-            return self.context.__append_entries__(req)
-        # TODO raft spec says don't respond,
-        # instead responding false
-        return {
-            "success": False,
-            "term": self.context.current_term,
-        }
+        return self.context.__append_entries__(req)
 
     def request_vote(self, req):
         self.last_message_time = datetime.now()
@@ -188,9 +172,15 @@ class Leader:
         if self.context.housekeep:
             self.context.schedule(self.housekeeping_timeout, self.housekeeping)
 
+    def housekeeping_needed(self):
+        return (
+            self.context.commit_index > HOUSEKEEPING_MAX_ENTRY
+            or self.context.log.tell() > HOUSEKEEPING_MAX_SIZE
+        )
+
     def housekeeping(self):
         if self.context.voted_for == self.context.name:
-            if self.context.commit_index >= HOUSEKEEPING_MAX_ENTRY:
+            if self.housekeeping_needed():
                 self.snapshot()
             self.context.schedule(self.housekeeping_timeout, self.housekeeping)
 
@@ -213,11 +203,13 @@ class Leader:
     def update_replicas(self):
         for replica in self.context.replicas:
             if replica == self.context.name:
-                self.match_index[replica] = len(self.context.entries)
+                self.match_index[replica] = len(self.context.entries) - 1
+                self.next_index[replica] = len(self.context.entries)
                 continue
             res = None
             try:
                 if self.snapshot_index[replica] != self.context.snapshot_version:
+                    logger.info(f"snapshot update to {replica}")
                     res = self.context.fetch(
                         replica,
                         "append_entries",
@@ -231,6 +223,9 @@ class Leader:
                     self.next_index[replica] = max(len(self.context.entries) - 1, 0) + 1
                     self.match_index[replica] = 0
                 else:
+                    logger.info(
+                        f"heartbeat/update data to {replica} {self.next_index[replica]}"
+                    )
                     prev_log_index = self.next_index[replica] - 1
                     prev_log_term = self.context.entries[prev_log_index]["term"]
                     res = self.context.fetch(
@@ -246,6 +241,7 @@ class Leader:
                             "snapshot_version": self.context.snapshot_version,
                         },
                     )
+                logger.info(f"replica response {res}")
                 if res:
                     if res["success"]:
                         self.next_index[replica] = len(self.context.entries)
@@ -259,7 +255,8 @@ class Leader:
                         "snapshot_version", self.context.snapshot_version
                     )
                 else:
-                    self.next_index[replica] -= 1
+                    if self.next_index[replica] > 0:
+                        self.next_index[replica] -= 1
             except:
                 logger.exception(f"Replica response: {res}")
         commited_sorted_by_mayority = sort_by_mayority(self.match_index.values())
@@ -286,6 +283,10 @@ class Leader:
         commited = self.update_replicas()
         if commited > self.context.commit_index:
             self.context.__update_commit_index__(commited)
+
+        if self.housekeeping_needed():
+            self.context.schedule(self.housekeeping_timeout, self.housekeeping)
+
         if commited == entry_index:
             return {
                 "success": True,

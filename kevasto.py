@@ -6,7 +6,7 @@ import logging
 import docker
 from flask import Flask, request
 
-from raft import NopVM, Raft
+from raft import Leader, NopVM, Raft
 
 
 class KeyValueVM(NopVM):
@@ -67,6 +67,13 @@ def add_raft_routes(app, raft: Raft):
 
     @app.route("/show")
     def show():
+        leader = {}
+        if isinstance(raft.state, Leader):
+            leader = {
+                "match_index": raft.state.match_index,
+                "next_index": raft.state.next_index,
+                "snapshot_index": raft.state.snapshot_index,
+            }
         res = {
             "entries": raft.entries,
             "voted_for": raft.voted_for,
@@ -76,6 +83,7 @@ def add_raft_routes(app, raft: Raft):
             "name": raft.name,
             "snapshot_version": raft.snapshot_version,
             "state": raft.state.__class__.__name__,
+            "index": leader,
         }
         return res
 

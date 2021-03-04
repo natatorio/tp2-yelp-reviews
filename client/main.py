@@ -20,7 +20,7 @@ def main():
     parameters = pika.URLParameters(amqp_url)
 
     for session_id in range(100):
-        time.sleep(10)
+        print(f"Session: {session_id}")
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
         channel.exchange_declare(exchange="data", exchange_type="direct")
