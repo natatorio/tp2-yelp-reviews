@@ -205,7 +205,10 @@ class Leader:
         return self.context.__append_entries__(req)
 
     def request_vote(self, req):
-        return self.context.__request_vote__(req)
+        voted = self.context.__request_vote__(req)
+        if voted["vote_granted"]:
+            self.context.as_follower()
+        return voted
 
     def update_replicas(self):
         for replica in self.context.replicas:
@@ -247,9 +250,14 @@ class Leader:
                     if res["success"]:
                         self.next_index[replica] = len(self.context.entries)
                         self.match_index[replica] = len(self.context.entries) - 1
-                    elif res["snapshot_version"] < self.context.snapshot_version:
+                    elif (
+                        res.get("snapshot_version")
+                        and res["snapshot_version"] < self.context.snapshot_version
+                    ):
                         self.next_index[replica] = 1
-                    self.snapshot_index[replica] = res["snapshot_version"]
+                    self.snapshot_index[replica] = res.get(
+                        "snapshot_version", self.context.snapshot_version
+                    )
                 else:
                     self.next_index[replica] -= 1
             except:
@@ -594,8 +602,8 @@ class Raft:
             if response.status_code == 200:
                 return response.json()
             logger.info(f"{response.status_code}, {response.text}")
-        except Exception:
-            logger.exception(f"Calling {replica}/{service}")
+        except Exception as e:
+            logger.error(f"Calling {replica}/{service} " + str(e))
         return None
 
     def schedule(self, delaymillis, func):

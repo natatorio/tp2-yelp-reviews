@@ -168,7 +168,7 @@ def retry(times, func):
             logging.exception("Retry")
             ex = e
 
-        time.sleep(random() / 2 + 0.5)
+        time.sleep(pow(2, i) + random())
         i += 1
     if ex is not None:
         raise ex
@@ -234,18 +234,24 @@ def get_name(str):
         return s[0]
 
 
-if __name__ == "__main__":
-    client = docker.from_env()
-    container = client.containers.get(os.environ["HOSTNAME"])
+def get_replicas():
     replicas = []
-    while len(replicas) < int(os.environ["N_REPLICAS"]):
+    i = 0
+    while len(replicas) < int(os.environ["N_REPLICAS"]) and i < 3:
         replicas = [
             c.name for c in client.containers.list() if os.environ["NAME"] in c.name
         ]
         time.sleep(0.5)
-    name = container.name
-    print(name, replicas)
+        i += 1
+    return replicas
 
+
+if __name__ == "__main__":
+    client = docker.from_env()
+    container = client.containers.get(os.environ["HOSTNAME"])
+    name = container.name
+    replicas = get_replicas()
+    print(name, replicas)
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
