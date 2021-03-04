@@ -3,11 +3,11 @@ from flask import Flask, make_response, jsonify
 import os
 import logging
 
-class HealthServer:
 
+class HealthServer:
     def __init__(self):
         self.app = Flask(__name__)
-        log = logging.getLogger('werkzeug')
+        log = logging.getLogger("werkzeug")
         log.setLevel(logging.ERROR)
         self.__run_thread()
         self.t.setDaemon(True)
@@ -18,12 +18,12 @@ class HealthServer:
 
     def run_server(self):
         self.__route_health_endpoint()
-        self.app.run(debug=True, use_reloader=False, host='0.0.0.0', port=os.environ['HEALTHCHECK_PORT'])
+        self.app.run(debug=True, use_reloader=False, host="0.0.0.0", port=80)
 
     def __route_health_endpoint(self):
-        @self.app.route('/health', methods=['GET'])
+        @self.app.route("/health", methods=["GET"])
         def healthcheck():
-            return ('', 204)
+            return ("", 204)
 
     def stop(self):
         exit(0)
@@ -32,7 +32,7 @@ class HealthServer:
 class LeaderServer(HealthServer):
     def __init__(self, iAmLeader):
         self.app = Flask(__name__)
-        log = logging.getLogger('werkzeug')
+        log = logging.getLogger("werkzeug")
         log.setLevel(logging.ERROR)
         self.__run_thread(iAmLeader)
         self.t.setDaemon(True)
@@ -47,6 +47,8 @@ class LeaderServer(HealthServer):
         super().run_server()
 
     def __route_leader_endpoints(self):
-        @self.app.route('/id')
+        @self.app.route("/id")
         def get_id():
-            return make_response(jsonify( id=os.environ['HOSTNAME'], leader=self.iAmLeader[0] ), 200)
+            return make_response(
+                jsonify(id=os.environ["HOSTNAME"], leader=self.iAmLeader[0]), 200
+            )

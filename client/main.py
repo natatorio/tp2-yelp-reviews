@@ -42,6 +42,7 @@ def main():
                     )
                     lines = f.readlines(chunk_size)
             print(item_count, "items read from ", file_path)
+            return item_count
 
         def publish_file(file_path, chunk_size, max_size, publish):
             item_count = 0
@@ -61,9 +62,11 @@ def main():
                             )
                             lines = f.readlines(chunk_size)
             print(item_count, "items read from ", file_path)
+            return item_count
 
+        items = -1
         try:
-            publish_file(
+            items = publish_file(
                 file_path=BUSINESS_DATASET_FILEPATH,
                 chunk_size=CHUNK_SIZE,
                 max_size=MAX_BUSINESS,
@@ -79,6 +82,7 @@ def main():
                 routing_key="business",
                 body=json.dumps(
                     {
+                        "id": items + 1,
                         "data": None,
                         "session_id": session_id,
                     }
@@ -88,8 +92,9 @@ def main():
         print("Callback queue setup")
         callback_queue = channel.queue_declare(queue="", exclusive=True).method.queue
 
+        items = -1
         try:
-            publish_file(
+            items = publish_file(
                 file_path=REVIEWS_DATASET_FILEPATH,
                 chunk_size=CHUNK_SIZE,
                 max_size=MAX_REVIEWS,
@@ -108,6 +113,7 @@ def main():
                 ),
                 body=json.dumps(
                     {
+                        "id": items + 1,
                         "data": None,
                         "reply": callback_queue,
                         "session_id": session_id,

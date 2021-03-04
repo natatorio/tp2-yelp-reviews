@@ -26,9 +26,7 @@ def run_election():
     candidates = {}
     for ip in get_watchdogs_ips():
         try:
-            response = requests.get(
-                "http://" + ip + ":" + os.environ["HEALTHCHECK_PORT"] + "/id"
-            )
+            response = requests.get("http://" + ip + ":80" + "/id")
             id = response.json().get("id")
             print(
                 "Process "
@@ -77,13 +75,13 @@ def main():
         "COMMENT_MAPPER",
         "HISTOGRAM_MAPPER",
         "FUNNY_MAPPER",
+        "KEVASTO",
     ]:
         nReplicas = int(os.environ.get("N_" + processKey, 1))
         processIp = os.environ["IP_" + processKey]
         for i in range(nReplicas):
             ip = os.environ["IP_PREFIX"] + "_" + processIp + "_" + str(i + 1)
             ips.append(ip)
-    port = os.environ["HEALTHCHECK_PORT"]
     iAmLeader = [False]
     leaderServer = LeaderServer(iAmLeader)
     time.sleep(10)  # Le doy tiempo a los procesos para levantar el flask
@@ -97,13 +95,13 @@ def main():
             for ip in ips + workersIps:
                 # print('http://' + ip + ':' + port + '/health')
                 try:
-                    requests.get("http://" + ip + ":" + port + "/health")
+                    requests.get("http://" + ip + ":80/health")
                 except:
                     revive(ip)
         else:
             print("[WORKER] Checking leader health...")
             try:
-                requests.get("http://" + leaderIp + ":" + port + "/health")
+                requests.get("http://" + leaderIp + ":80/health")
                 # print('http://' + leaderIp + ':' + port + '/health')
             except:
                 print("Leader has died. Running leader election")

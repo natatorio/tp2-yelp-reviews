@@ -168,6 +168,7 @@ def retry(times, func):
     i = 0
     ex = None
     while i < times:
+        print(f"retry {i}")
         try:
             res = func()
             if res is not None:
@@ -184,7 +185,7 @@ def retry(times, func):
 
 
 class Client:
-    def __init__(self, host) -> None:
+    def __init__(self, host="tp3_kevasto_1") -> None:
         self.retry_times = 50
         self.host = host
 
@@ -193,7 +194,7 @@ class Client:
             res = requests.delete(url)
             content = res.json()
             if res.status_code == 200:
-                return content["data"]
+                return True
             elif content.get("redirect"):
                 self.host = content["redirect"]
             return None
@@ -217,7 +218,7 @@ class Client:
             res = requests.put(url, json=data)
             content = res.json()
             if res.status_code == 200:
-                return content["data"]
+                return True
             elif content.get("redirect"):
                 self.host = content["redirect"]
             return None

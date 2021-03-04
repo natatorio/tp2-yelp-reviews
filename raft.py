@@ -81,7 +81,9 @@ class Candidate:
 
     def start_election(self):
         logger.info(f"{self.context.name} started election")
-        self.context.__vote__(self.context.name, self.context.current_term + 1)
+        election_term = self.context.current_term + 1
+        if not self.context.__vote__(self.context.name, election_term, self):
+            return
         votes = 1
         for replica in self.context.replicas:
             if self.found_better_leader:
@@ -93,7 +95,7 @@ class Candidate:
                 replica,
                 "request_vote",
                 {
-                    "term": self.context.current_term,
+                    "term": election_term,
                     "candidate_id": self.context.name,
                     "last_log_index": len(self.context.entries) - 1,
                     "last_log_term": self.context.entries[-1]["term"],
@@ -242,21 +244,24 @@ class Leader:
                         },
                     )
                 logger.info(f"replica response {res}")
-                if res:
-                    if res["success"]:
-                        self.next_index[replica] = len(self.context.entries)
-                        self.match_index[replica] = len(self.context.entries) - 1
-                    elif (
-                        res.get("snapshot_version")
-                        and res["snapshot_version"] < self.context.snapshot_version
-                    ):
-                        self.next_index[replica] = 1
+                if res is None:
+                    continue
+                if res["success"]:
+                    self.next_index[replica] = len(self.context.entries)
+                    self.match_index[replica] = len(self.context.entries) - 1
+                    continue
+                if (
+                    res.get("snapshot_version", self.context.snapshot_version)
+                    < self.context.snapshot_version
+                ):
+                    self.next_index[replica] = 1
+                    self.match_index[replica] = 0
                     self.snapshot_index[replica] = res.get(
                         "snapshot_version", self.context.snapshot_version
                     )
-                else:
-                    if self.next_index[replica] > 0:
-                        self.next_index[replica] -= 1
+                    continue
+                if self.next_index[replica] > 0:
+                    self.next_index[replica] -= 1
             except:
                 logger.exception(f"Replica response: {res}")
         commited_sorted_by_mayority = sort_by_mayority(self.match_index.values())
@@ -376,9 +381,9 @@ class Raft:
         line = self.config.readline()
         if line:
             conf = json.loads(line)
-            self.commit_index = conf["commit_index"]
-            self.last_applied = conf["last_applied"]
-            self.snapshot_version = conf["snapshot_version"]
+            self.commit_index = conf.get("commit_index", 0)
+            self.last_applied = conf.get("last_applied", 0)
+            self.snapshot_version = conf.get("snapshot_version", 0)
         else:
             self.snapshot_version = 0
             self.commit_index = 0
@@ -432,10 +437,13 @@ class Raft:
                 write_json_line(self.log, req)
             self.log.flush()
 
-    def __vote__(self, voted_for, term):
+    def __vote__(self, voted_for, term, current_state=None):
         with self.lock:
-            self.voted_for = voted_for
-            self.current_term = term
+            if current_state is None or current_state == self.state:
+                self.voted_for = voted_for
+                self.current_term = term
+                return True
+            return False
 
     def save_config(self):
         self.config.seek(0, 0)

@@ -59,7 +59,7 @@ class Router:
                         exchange="reviews",
                         routing_key="business",
                         properties=props,
-                        body=json.dumps({"data": business_cities}),
+                        body=json.dumps({**payload, "data": business_cities}),
                     )
                     self.channel.basic_ack(method.delivery_tag)
                 else:

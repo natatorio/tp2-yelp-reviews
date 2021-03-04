@@ -28,7 +28,7 @@ class Consumer:
 
         self.replicas = int(os.environ["N_REPLICAS"])
         time.sleep(3)
-        self.state_store = Client("tp3_kevasto_1")
+        self.state_store = Client()
         self.i = 0
         self.start = 0
         self.reply_to = None
@@ -40,7 +40,8 @@ class Consumer:
                 self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
-                self.state_store.put(self.routing_key, payload["id"], payload)
+                #  print(payload)
+                # self.state_store.put(self.routing_key, payload["id"], payload)
                 self.channel.basic_ack(method.delivery_tag)
                 data = payload["data"]
                 if data:
