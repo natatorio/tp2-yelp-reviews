@@ -223,6 +223,8 @@ services:
       - PYTHONUNBUFFERED=1
       - NAME=kevasto
       - N_REPLICAS=5
+    networks:
+      - my_network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
