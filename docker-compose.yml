@@ -7,14 +7,14 @@ services:
       - 15672:15672
       - 5672:5672
     networks:
-      - my_network
+      - reviews_network
 
   watchdog:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m watchdog.main
     environment:
-      - PYTHONUNBUFFERED=1
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
       - IP_PREFIX=tp3
@@ -43,193 +43,168 @@ services:
       - IP_KEVASTO=kevasto
       - N_KEVASTO=5
     networks:
-      - my_network
+      - reviews_network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
   router:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m router.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - rabbitmq
 
   histogram_mapper:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m histogram.mapper_main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   users:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m users.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=1
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   histogram:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m histogram.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=1
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   business:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m business.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=1
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   stars5:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m stars5.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=2
       - N_REPLICAS=1
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   stars5_mapper:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m stars5.mapper_main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   comment:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m comment.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=1
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   comment_mapper:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m comment.mapper_main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   funny:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m funny.main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=1
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
   funny_mapper:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m funny.mapper_main
     environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
       - N_REPLICAS=2
       - HEALTHCHECK_PORT=5433
     networks:
-      - my_network
+      - reviews_network
     depends_on:
       - router
 
-  client:
-    build:
-      context: .
-    entrypoint: python3 -m client.main
-    environment:
-      - PYTHONUNBUFFERED=1
-      - AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
-    networks:
-      - my_network
-    volumes:
-      - ../data:/data:rw
-    depends_on:
-      - rabbitmq
-
   kevasto:
+    image: reviews
     build:
       context: .
     entrypoint: python3 -m kevasto
     environment:
-      - PYTHONUNBUFFERED=1
       - NAME=kevasto
       - N_REPLICAS=5
     networks:
-      - my_network
+      - reviews_network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
 networks:
-  my_network:
+  reviews_network:
     ipam:
       driver: default
       config:

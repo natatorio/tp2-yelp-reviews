@@ -245,8 +245,11 @@ if __name__ == "__main__":
         time.sleep(0.5)
     name = container.name
     print(name, replicas)
+
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
     app = Flask(__name__)
-    logging.basicConfig(level=logging.DEBUG)
     raft = Raft(
         name,
         replicas,

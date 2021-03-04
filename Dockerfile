@@ -7,4 +7,6 @@ RUN apt install docker.io -y
 RUN docker --version
 RUN pip install docker
 COPY . .
-CMD python3 main.py
+ENV PYTHONUNBUFFERED=1
+ENV AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5
+CMD python3 -m client.main
