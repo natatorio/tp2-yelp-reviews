@@ -4,6 +4,13 @@ import pika
 from health_server import HealthServer
 
 
+def select_keys(m, keys):
+    r = {}
+    for key in keys:
+        r[key] = m[key]
+    return r
+
+
 # https://stackoverflow.com/questions/24510310/consume-multiple-queues-in-python-pika
 class Router:
     def __init__(self):
@@ -88,7 +95,7 @@ class Router:
             payload = json.loads(body.decode("utf-8"))
             reviews = payload["data"]
             if reviews:
-                self.route_review(reviews, props)
+                self.route_review(reviews, props, payload)
                 self.channel.basic_ack(method.delivery_tag)
             else:
                 count_down = payload.get("count_down", self.replicas)
@@ -105,12 +112,12 @@ class Router:
                         ),
                     )
                 else:
-                    self.route_review(None, props)
+                    self.route_review(None, props, payload)
                 self.channel.basic_ack(method.delivery_tag)
                 break
         self.channel.cancel()
 
-    def route_review(self, reviews, props):
+    def route_review(self, reviews, props, context):
         funny = None
         comment = None
         users = None
@@ -118,7 +125,11 @@ class Router:
         histogram = None
         if reviews:
             funny = [
-                {"funny": r["funny"], "business_id": r["business_id"]} for r in reviews
+                {
+                    "funny": r["funny"],
+                    "business_id": r["business_id"],
+                }
+                for r in reviews
             ]
             comment = [{"text": r["text"], "user_id": r["user_id"]} for r in reviews]
             users = [{"user_id": r["user_id"]} for r in reviews]
@@ -128,31 +139,31 @@ class Router:
             exchange="reviews",
             routing_key="users",
             properties=props,
-            body=json.dumps({"data": users}),
+            body=json.dumps({**context, "data": users}),
         )
         self.channel.basic_publish(
             exchange="map",
             routing_key="comment",
             properties=props,
-            body=json.dumps({"data": comment}),
+            body=json.dumps({**context, "data": comment}),
         )
         self.channel.basic_publish(
             exchange="map",
             routing_key="funny",
             properties=props,
-            body=json.dumps({"data": funny}),
+            body=json.dumps({**context, "data": funny}),
         )
         self.channel.basic_publish(
             exchange="map",
             routing_key="stars5",
             properties=props,
-            body=json.dumps({"data": stars5}),
+            body=json.dumps({**context, "data": stars5}),
         )
         self.channel.basic_publish(
             exchange="map",
             routing_key="histogram",
             properties=props,
-            body=json.dumps({"data": histogram}),
+            body=json.dumps({**context, "data": histogram}),
         )
 
     def run(self):
