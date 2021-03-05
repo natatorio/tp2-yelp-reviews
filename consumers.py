@@ -81,10 +81,13 @@ class Consumer:
         self.connection.close()
 
     def get_state(self):
+        # state = self.state_store.get(self.routing_key, "state")
+        # if state is not None:
+        #    return state
         return {}
 
     def put_state(self, state):
-        pass
+        self.state_store.put(self.routing_key, "state", state)
 
     def is_state_done(self):
         # TODO Caso borde: Si se cae entre que termino de aggregar y se resetea estado quedaría bloqueado intentando
@@ -237,7 +240,7 @@ class Fold:
         try:
             start, res = self.recover()
             n = start
-            for ack, payload in self.pipeIn.recv(channel):
+            for ack, payload in self.pipeIn.recv():
                 self.save_item(payload)
                 ack()
                 data = payload["data"]
@@ -252,12 +255,11 @@ class Fold:
                     if count_down <= 1:
                         print("count_down done, forward eof")
                         for pipeOut in self.pipesOut:
-                            pipeOut.send(channel, data)
+                            pipeOut.send(data)
                         res = {}
                     else:
                         print("count_down", count_down)
                         self.pipeIn.send(
-                            channel,
                             {
                                 **payload,
                                 "count_down": count_down - 1,

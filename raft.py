@@ -9,12 +9,12 @@ import requests
 import logging
 
 HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", "2000"))
-FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", "10000"))
+FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", "5000"))
 HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", "15000"))
 HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 250)) * 1024 * 1024
 
 logger = logging.getLogger("raft")
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 
 
 def create_if_not_exists(file_path):
@@ -42,7 +42,7 @@ ELECTION_TIMEOUT = 100
 
 def generate_election_timeout():
     global ELECTION_TIMEOUT
-    timeout = random.randint(0, 3) * 500 + ELECTION_TIMEOUT
+    timeout = random.randint(1, 2) * ELECTION_TIMEOUT
     ELECTION_TIMEOUT = FINAL_ELECTION_TIMEOUT
     return timeout
 
@@ -64,11 +64,15 @@ class Follower:
             self.context.schedule(self.election_timeout, self.on_election_timeout)
 
     def append_entries(self, req):
-        if req["leader_id"] == self.context.voted_for:
+        if (
+            req["leader_id"] == self.context.voted_for
+            or self.context.name == self.context.voted_for
+        ):
             self.last_message_time = datetime.now()
-            return self.context.__append_entries__(req)
-        if req["term"] < self.context.current_term:
-            self.context.as_candidate()
+            res = self.context.__append_entries__(req)
+            if self.context.name == self.context.voted_for and res["success"]:
+                self.context.voted_for = req["leader_id"]
+            return res
         return {
             "success": False,
             "snapshot_version": self.context.snapshot_version,
@@ -92,20 +96,20 @@ class Follower:
 class Candidate:
     def __init__(self, context):
         self.context = context
-        self.found_better_leader = False
+        self.context.voted_for = None
         self.context.schedule(0, self.start_election)
 
     def start_election(self):
         if self.context.state != self:
             return
         logger.info(f"{self.context.name} started election")
-        election_term = self.context.current_term + 1
-        if not self.context.__vote__(self.context.name, election_term, self):
+        if not self.context.__vote__(
+            self.context.name, self.context.current_term + 1, self
+        ):
             return
         votes = 1
+        max_term = 0
         for replica in self.context.replicas:
-            if self.found_better_leader:
-                return
             if replica == self.context.name:
                 continue
 
@@ -113,34 +117,36 @@ class Candidate:
                 replica,
                 "request_vote",
                 {
-                    "term": election_term,
+                    "term": self.context.current_term,
                     "candidate_id": self.context.name,
                     "last_log_index": len(self.context.entries) - 1,
                     "last_log_term": self.context.entries[-1]["term"],
                     "snapshot_version": self.context.snapshot_version,
                 },
             )
-
-            if res and res["vote_granted"]:
-                votes += 1
+            logger.info("%s responded %s", replica, res)
+            if res:
+                if res["vote_granted"]:
+                    votes += 1
+                if res["term"] > max_term:
+                    max_term = res["term"]
         logger.info(f"votes {votes}")
         if votes >= int(len(self.context.replicas) / 2) + 1:
             self.context.as_leader()
-        elif not self.found_better_leader:
+        elif self.context.state == self:
+            self.context.current_term = max_term
             self.election_timeout = generate_election_timeout()
             self.context.schedule(self.election_timeout, self.start_election)
 
     def append_entries(self, req):
         res = self.context.__append_entries__(req)
         if res["success"]:
-            self.found_better_leader = True
             self.context.as_follower()
         return res
 
     def request_vote(self, req):
         res = self.context.__request_vote__(req)
         if res["vote_granted"]:
-            self.found_better_leader = True
             self.context.as_follower()
         return res
 
@@ -235,7 +241,7 @@ class Leader:
             res = None
             try:
                 if self.snapshot_index[replica] != self.context.snapshot_version:
-                    logger.info(f"snapshot update to {replica}")
+                    logger.debug(f"snapshot update to {replica}")
                     res = self.context.fetch(
                         replica,
                         "append_entries",
@@ -249,7 +255,7 @@ class Leader:
                     self.next_index[replica] = max(len(self.context.entries) - 1, 0) + 1
                     self.match_index[replica] = 0
                 else:
-                    logger.info(
+                    logger.debug(
                         f"heartbeat/update data to {replica} {self.next_index[replica]}"
                     )
                     prev_log_index = self.next_index[replica] - 1
@@ -267,7 +273,7 @@ class Leader:
                             "snapshot_version": self.context.snapshot_version,
                         },
                     )
-                logger.info(f"replica response {res}")
+                logger.debug(f"{replica} response {res}")
                 if res is None:
                     continue
                 if res["success"]:
@@ -287,8 +293,9 @@ class Leader:
                     self.next_index[replica] -= 1
             except:
                 logger.exception(f"Replica response: {res}")
+
         commited_sorted_by_mayority = sort_by_mayority(self.match_index.values())
-        logger.info(f"commited: {commited_sorted_by_mayority}")
+        logger.debug(f"commited: {commited_sorted_by_mayority}")
         for commited in commited_sorted_by_mayority:
             if commited <= self.context.commit_index:
                 break
@@ -317,6 +324,7 @@ class Leader:
             self.context.schedule(self.housekeeping_timeout, self.housekeeping)
 
         if commited == entry_index:
+            logger.info(f"commited request")
             return {
                 "success": True,
                 "id": entry_index,
@@ -408,6 +416,8 @@ class Raft:
             self.commit_index = conf.get("commit_index", 0)
             self.last_applied = conf.get("last_applied", 0)
             self.snapshot_version = conf.get("snapshot_version", 0)
+            self.voted_for = conf.get("voted_for", None)
+            self.current_term = conf.get("current_term", 0)
         else:
             self.snapshot_version = 0
             self.commit_index = 0
@@ -440,34 +450,35 @@ class Raft:
         self.as_follower()
 
     def append_entry(self, req):
-        return self.state.append_entry(req)
+        with self.lock:
+            return self.state.append_entry(req)
 
     def append_entries(self, req):
-        return self.state.append_entries(req)
+        with self.lock:
+            return self.state.append_entries(req)
 
     def request_vote(self, req):
-        return self.state.request_vote(req)
+        with self.lock:
+            return self.state.request_vote(req)
 
     def __append_entry__(self, start, reqs):
-        with self.lock:
-            logger.info(f"append_entry: {start}")
-            if len(self.entries) < start:
-                self.log.truncate(self.seek[start])
-                self.entries = self.entries[:start]
-                self.seek = self.seek[:start]
-            self.entries += reqs
-            for req in reqs:
-                self.seek.append(self.log.tell())
-                write_json_line(self.log, req)
-            self.log.flush()
+        logger.info(f"append_entry: {start}")
+        if len(self.entries) < start:
+            self.log.truncate(self.seek[start])
+            self.entries = self.entries[:start]
+            self.seek = self.seek[:start]
+        self.entries += reqs
+        for req in reqs:
+            self.seek.append(self.log.tell())
+            write_json_line(self.log, req)
+        self.log.flush()
 
     def __vote__(self, voted_for, term, current_state=None):
-        with self.lock:
-            if current_state is None or current_state == self.state:
-                self.voted_for = voted_for
-                self.current_term = term
-                return True
-            return False
+        if current_state is None or current_state == self.state:
+            self.voted_for = voted_for
+            self.current_term = term
+            return True
+        return False
 
     def save_config(self):
         self.config.seek(0, 0)
@@ -477,11 +488,14 @@ class Raft:
                 "commit_index": self.commit_index,
                 "snapshot_version": self.snapshot_version,
                 "last_index": self.last_applied,
+                "voted_for": self.voted_for,
+                "current_term": self.current_term,
             },
         )
         self.config.flush()
 
     def __append_entries__(self, req):
+        logger.debug("append_entries: %s", req)
         snapshot = req.get("snapshot")
         if snapshot is not None and req["snapshot_version"] >= self.snapshot_version:
             if req["snapshot_version"] > self.snapshot_version:
@@ -536,6 +550,8 @@ class Raft:
         }
 
     def __request_vote__(self, req):
+        logger.debug(f"request_vote: {req}")
+
         def upto_date(self, req):
             with self.lock:
                 last_log_term = self.entries[-1]["term"]
@@ -547,7 +563,7 @@ class Raft:
                     )
                 ) and self.snapshot_version <= req["snapshot_version"]
 
-        if req["term"] >= self.current_term:
+        if req["term"] > self.current_term:
             if (
                 self.voted_for is None
                 or self.voted_for == req["candidate_id"]
@@ -584,9 +600,11 @@ class Raft:
             write_json_line(
                 f,
                 {
-                    "snapshot_version": snapshot_version,
-                    "commit_index": 0,
-                    "last_applied": 0,
+                    "commit_index": self.commit_index,
+                    "snapshot_version": self.snapshot_version,
+                    "last_index": self.last_applied,
+                    "voted_for": self.voted_for,
+                    "current_term": self.current_term,
                 },
             )
 
@@ -596,35 +614,31 @@ class Raft:
                 seek.append(f.tell())
                 write_json_line(f, e)
 
-        with self.lock:
-            swap(
-                self.snapshot_file_name,
-                self.snapshot_file_name + ".tmp",
-            )
-            self.config = swap(self.config.name, self.config.name + ".tmp", "r+")
-            self.log = swap(self.log.name, self.log.name + ".tmp", "r+")
+        swap(
+            self.snapshot_file_name,
+            self.snapshot_file_name + ".tmp",
+        )
+        self.config = swap(self.config.name, self.config.name + ".tmp", "r+")
+        self.log = swap(self.log.name, self.log.name + ".tmp", "r+")
 
-            self.seek = seek
-            self.entries = entries
-            self.snapshot_version = snapshot_version
-            self.entries = [{"term": self.current_term, "data": None}] + entries
-            self.commit_index = 0
-            self.last_applied = 0
+        self.seek = seek
+        self.entries = entries
+        self.snapshot_version = snapshot_version
+        self.entries = [{"term": self.current_term, "data": None}] + entries
+        self.commit_index = 0
+        self.last_applied = 0
 
     def as_candidate(self):
-        with self.lock:
-            logger.info(f"{self.name} as candidate")
-            self.state = Candidate(self)
+        logger.info(f"{self.name} as candidate")
+        self.state = Candidate(self)
 
     def as_leader(self):
-        with self.lock:
-            logger.info(f"{self.name} as leader")
-            self.state = Leader(self)
+        logger.info(f"{self.name} as leader")
+        self.state = Leader(self)
 
     def as_follower(self):
-        with self.lock:
-            logger.info(f"{self.name} as follower")
-            self.state = Follower(self)
+        logger.info(f"{self.name} as follower")
+        self.state = Follower(self)
 
     def fetch(self, replica, service, data):
         try:
@@ -647,4 +661,5 @@ class Raft:
         return self.state.results(query)
 
     def snapshot(self):
-        return self.state.snapshot()
+        with self.lock:
+            return self.state.snapshot()

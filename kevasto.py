@@ -19,7 +19,6 @@ class KeyValueVM(NopVM):
         return self.data
 
     def run(self, commands):
-        print(f"applying {len(commands)} commands")
         for command in commands:
             command = command["data"]
 
