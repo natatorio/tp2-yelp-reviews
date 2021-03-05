@@ -4,16 +4,21 @@ import time
 import subprocess
 from health_server import *
 
+import logging
+
+LOG = logging.getLogger("WatchdogSideCar")
+LOG.setLevel(logging.ERROR)
+
 
 def revive(ip):
-    print("Process " + ip + " has died. Starting it up again...")
+    LOG.info("Process " + ip + " has died. Starting it up again...")
     result = subprocess.run(
         ["docker", "start", ip],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    print(
+    LOG.info(
         "Process "
         + ip
         + " is up again. Result={}. Output={}. Error={}".format(
@@ -28,7 +33,7 @@ def run_election():
         try:
             response = requests.get("http://" + ip + ":80" + "/id")
             id = response.json().get("id")
-            print(
+            LOG.info(
                 "Process "
                 + ip
                 + " says its id is "
@@ -41,11 +46,11 @@ def run_election():
                 return ip, id
             candidates[ip] = id
         except:
-            print("Process " + ip + " did not answered")
+            LOG.info("Process " + ip + " did not answered")
             pass
     leaderIp = max(candidates, key=candidates.get)
     leaderId = candidates[leaderIp]
-    print("Now " + leaderIp + " is leader")
+    LOG.info("Now " + leaderIp + " is leader")
     return leaderIp, leaderId
 
 
@@ -57,7 +62,7 @@ def get_watchdogs_ips():
     ips = []
     for i in range(int(os.environ["N_REPLICAS"])):
         ips.append(os.environ["IP_PREFIX"] + "_watchdog_" + str(i + 1))
-    # print('WATCHDOG IPS: ', ips)
+    # LOG.info('WATCHDOG IPS: ', ips)
     return ips
 
 
@@ -91,20 +96,20 @@ def main():
         time.sleep(3)
         iAmLeader[0] = i_am_leader(leaderId)
         if iAmLeader[0]:
-            print("[LEADER] Checking processes health...")
+            LOG.info("[LEADER] Checking processes health...")
             for ip in ips + workersIps:
-                # print('http://' + ip + ':' + port + '/health')
+                # LOG.info('http://' + ip + ':' + port + '/health')
                 try:
                     requests.get("http://" + ip + ":80/health")
                 except:
                     revive(ip)
         else:
-            print("[WORKER] Checking leader health...")
+            LOG.info("[WORKER] Checking leader health...")
             try:
                 requests.get("http://" + leaderIp + ":80/health")
-                # print('http://' + leaderIp + ':' + port + '/health')
+                # LOG.info('http://' + leaderIp + ':' + port + '/health')
             except:
-                print("Leader has died. Running leader election")
+                LOG.info("Leader has died. Running leader election")
                 leaderIp, leaderId = run_election()
                 workersIps = [ip for ip in get_watchdogs_ips() if ip != leaderIp]
 

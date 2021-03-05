@@ -6,6 +6,10 @@ from pika.adapters.blocking_connection import BlockingChannel
 from kevasto import Client
 import pika
 import time
+import logging
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Consumer:
@@ -34,7 +38,7 @@ class Consumer:
         self.reply_to = None
 
     def run(self):
-        print("Start Consuming", self.exchange, self.routing_key)
+        LOG.info("Start Consuming", self.exchange, self.routing_key)
         try:
             for method, props, body in self.channel.consume(
                 self.consumer_queue, auto_ack=False
@@ -49,7 +53,7 @@ class Consumer:
                     # self.state_store.put(self.routing_key, "state", self.get_state())
                 else:
                     self.reply_to = props.reply_to
-                    print(payload.get("reply"))
+                    LOG.info("reply:", payload.get("reply"))
                     count_down = payload.pop("count_down", self.replicas)
                     if count_down > 1:
                         print("count_down", count_down)
@@ -66,21 +70,21 @@ class Consumer:
                             ),
                         )
                     else:
-                        print("count_down done")
+                        LOG.info("count_down done")
                     break
         finally:
             self.channel.cancel()
-        print("Done Consuming", self.exchange, self.routing_key)
+        LOG.info("Done Consuming", self.exchange, self.routing_key)
 
     def close(self):
         self.connection.process_data_events()
         self.connection.close()
 
     def get_state(self):
-        return self.state_store.get(self.routing_key, "state")
+        return {}
 
     def put_state(self, state):
-        self.state_store.put(self.routing_key, "state", state)
+        pass
 
     def is_state_done(self):
         # TODO Caso borde: Si se cae entre que termino de aggregar y se resetea estado quedaría bloqueado intentando
@@ -143,10 +147,11 @@ class CounterBy(Consumer):
 
 
 class JoinerCounterBy(CounterBy):
-    def join(self, aggregated):
+    def __init__(self, keyId, exchange, routing_key):
+        super().__init__(keyId, exchange, routing_key)
         self.data = None
         self.data_queue_name = self.channel.queue_declare(
-            queue=self.routing_key + ".JOIN_DATA", durable=True
+            queue=self.routing_key + ".DATA", durable=True
         ).method.queue
         self.data_routing_key = self.routing_key + ".DATA"
         self.channel.queue_bind(
@@ -154,6 +159,8 @@ class JoinerCounterBy(CounterBy):
             queue=self.data_queue_name,
             routing_key=self.data_routing_key,
         )
+
+    def join(self, aggregated):
         try:
             for method, props, body in self.channel.consume(
                 self.data_queue_name, auto_ack=False

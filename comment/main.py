@@ -5,10 +5,13 @@ from health_server import HealthServer
 def main():
     healthServer = HealthServer()
     while True:
-        querier = CommentQuerier(keyId="user_id", exchange="reviews", routing_key="comment")
+        print("starts")
+        querier = CommentQuerier(
+            keyId="user_id", exchange="reviews", routing_key="comment"
+        )
         LastCommentCountPerUser = querier.count()
+        print("count ready")
         allSameCommentReviewsPerRelevantUser = querier.join(LastCommentCountPerUser)
-
         print(len(LastCommentCountPerUser), " Users")
         print(
             len(allSameCommentReviewsPerRelevantUser),

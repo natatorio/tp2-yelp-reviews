@@ -14,6 +14,7 @@ HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", "15000"))
 HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 250)) * 1024 * 1024
 
 logger = logging.getLogger("raft")
+logger.setLevel(logging.ERROR)
 
 
 def create_if_not_exists(file_path):
