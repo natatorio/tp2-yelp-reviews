@@ -9,7 +9,8 @@ import time
 import logging
 
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger("consumers")
+LOG.setLevel(logging.INFO)
 
 
 class Consumer:
@@ -57,7 +58,7 @@ class Consumer:
                     self.aggregate(data)
                     # self.state_store.put(self.routing_key, "state", self.get_state())
                 else:
-                    self.reply_to = props.reply_to
+                    self.reply_to = payload.get("reply")
                     LOG.info("reply:", payload.get("reply"))
                     count_down = payload.pop("count_down", self.replicas)
                     if count_down > 1:
@@ -65,7 +66,6 @@ class Consumer:
                         self.channel.basic_publish(
                             exchange=self.exchange,
                             routing_key=self.routing_key,
-                            properties=props,
                             body=json.dumps(
                                 {
                                     **payload,

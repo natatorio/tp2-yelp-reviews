@@ -108,9 +108,6 @@ def main():
         channel.basic_publish(
             exchange="data",
             routing_key="review",
-            properties=pika.BasicProperties(
-                reply_to=callback_queue,
-            ),
             body=json.dumps(
                 {
                     "id": items + 1,
