@@ -74,7 +74,7 @@ def add_raft_routes(app, raft: Raft):
                 "snapshot_index": raft.state.snapshot_index,
             }
         res = {
-            # "entries": raft.entries,
+            "entries": len(raft.entries),
             "voted_for": raft.voted_for,
             "current_term": raft.current_term,
             "commit_index": raft.commit_index,
@@ -83,6 +83,8 @@ def add_raft_routes(app, raft: Raft):
             "snapshot_version": raft.snapshot_version,
             "state": raft.state.__class__.__name__,
             "index": leader,
+            "log": raft.log.tell(),
+            "machine": len(raft.machine.data),
         }
         return res
 
@@ -168,7 +170,6 @@ def retry(times, func):
     ex = None
     res = None
     while i < times:
-        print(f"retry {i} {str(ex)} {res}")
         try:
             done, res = func()
             if done:
@@ -177,8 +178,10 @@ def retry(times, func):
             logging.exception("Retry")
             ex = e
 
-        time.sleep(pow(2, i) + random())
         i += 1
+        secs = pow(2, i % 10) / 100 + random()
+        print(f"retry {i} in {secs} {str(ex)} {res} ")
+        time.sleep(secs)
     if ex is not None:
         raise ex
     return None
@@ -186,7 +189,6 @@ def retry(times, func):
 
 class Client:
     def __init__(self, host="tp3_kevasto_1") -> None:
-        self.retry_times = 50
         self.host = host
 
     def delete(self, bucket, key):
@@ -246,7 +248,7 @@ def get_name(str):
 def get_replicas():
     replicas = []
     i = 0
-    while len(replicas) < int(os.environ["N_REPLICAS"]) and i < 3:
+    while len(replicas) < int(os.environ["N_REPLICAS"]):
         replicas = [
             c.name for c in client.containers.list() if os.environ["NAME"] in c.name
         ]

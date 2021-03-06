@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, List, Tuple
+from typing import List
 
 from pika.adapters.blocking_connection import BlockingChannel
 from kevasto import Client
@@ -41,10 +41,14 @@ class Consumer:
     def run(self):
         LOG.info("Start Consuming", self.exchange, self.routing_key)
         try:
+            i = -1
             for method, props, body in self.channel.consume(
                 self.consumer_queue, auto_ack=False
             ):
                 payload = json.loads(body.decode("utf-8"))
+                i += 1
+                if i % 100 == 0:
+                    LOG.info(payload)
                 #  print(payload)
                 self.state_store.put(self.routing_key, payload["id"], payload)
                 self.channel.basic_ack(method.delivery_tag)
@@ -83,7 +87,7 @@ class Consumer:
 
     def get_state(self):
         # state = self.state_store.get(self.routing_key, "state")
-        # if state is not None:
+        # if state:
         #    return state
         return self.not_persisted_state
 
@@ -129,7 +133,9 @@ class BusinessConsumer(Consumer):
         newBusinessCities = {}
         for elem in data:
             newBusinessCities[elem["business_id"]] = elem["city"]
-        self.businessCities = {**self.get_state(), **newBusinessCities}
+        state = self.get_state()
+        LOG.info(type(state))
+        self.businessCities = {**state, **newBusinessCities}
         self.put_state(self.businessCities)
 
 
