@@ -8,10 +8,10 @@ from scheduler import Scheduler
 import requests
 import logging
 
-HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", "2000"))
-FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", "5000"))
-HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", 10 * 1000))
-HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 128)) * 1024 * 1024
+HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", 2000))
+FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 5000))
+HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", 30 * 1000))
+HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 100)) * 1024 * 1024
 
 logger = logging.getLogger("raft")
 logger.setLevel(logging.INFO)
@@ -188,7 +188,7 @@ class HouseKeeper(Scheduler):
             return
         if self.housekeeping_needed():
             logger.info("running snapshot")
-            self.owner.snapshot()
+            self.owner.context.snapshot()
         self.schedule(timedelta(milliseconds=HOUSEKEEPING_TIMEOUT), self.housekeeping)
         logger.info("housekeeping done")
 
@@ -256,8 +256,12 @@ class Leader:
                             "snapshot_version": self.context.snapshot_version,
                         },
                     )
-                    self.next_index[replica] = max(len(self.context.entries) - 1, 0) + 1
-                    self.match_index[replica] = 0
+                    if res:
+                        if res["success"] == True:
+                            self.next_index[replica] = 1
+                            self.match_index[replica] = 0
+                            self.snapshot_index[replica] = res["snapshot_version"]
+                    continue
                 else:
                     logger.debug(
                         f"heartbeat/update data to {replica} {self.next_index[replica]}"
@@ -277,24 +281,24 @@ class Leader:
                             "snapshot_version": self.context.snapshot_version,
                         },
                     )
-                logger.debug(f"{replica} response {res}")
-                if res is None:
-                    continue
-                if res["success"]:
-                    self.next_index[replica] = len(self.context.entries)
-                    self.match_index[replica] = len(self.context.entries) - 1
-                    continue
-                if (
-                    res.get("snapshot_version", self.context.snapshot_version)
-                    < self.context.snapshot_version
-                ):
-                    self.next_index[replica] = 1
-                    self.snapshot_index[replica] = res.get(
-                        "snapshot_version", self.context.snapshot_version
-                    )
-                    continue
-                if self.next_index[replica] > 1:
-                    self.next_index[replica] -= 1
+                    logger.debug(f"{replica} response {res}")
+                    if res is None:
+                        continue
+                    if res["success"]:
+                        self.next_index[replica] = len(self.context.entries)
+                        self.match_index[replica] = len(self.context.entries) - 1
+                        continue
+                    if (
+                        res.get("snapshot_version", self.context.snapshot_version)
+                        < self.context.snapshot_version
+                    ):
+                        self.next_index[replica] = 1
+                        self.match_index[replica] = 0
+                        self.snapshot_index[replica] = res.get(
+                            "snapshot_version", self.context.snapshot_version
+                        )
+                        continue
+                    self.next_index[replica] = max(self.next_index[replica] - 1, 1)
             except:
                 logger.exception(f"Replica response: {res}")
 
@@ -409,18 +413,16 @@ class Raft:
         self.housekeep = housekeep
         self.config = open(create_if_not_exists(base_path + ".conf"), "r+")
         self.config.seek(0, 0)
+        conf = {}
         line = self.config.readline()
         if line:
             conf = json.loads(line)
-            self.commit_index = conf.get("commit_index", 0)
-            self.last_applied = conf.get("last_applied", 0)
-            self.snapshot_version = conf.get("snapshot_version", 0)
-            self.voted_for = conf.get("voted_for", None)
-            self.current_term = conf.get("current_term", 0)
-        else:
-            self.snapshot_version = 0
-            self.commit_index = 0
-            self.last_applied = 0
+
+        self.commit_index = conf.get("commit_index", 0)
+        self.last_applied = conf.get("last_applied", 0)
+        self.snapshot_version = conf.get("snapshot_version", 0)
+        self.voted_for = conf.get("voted_for", None)
+        self.current_term = conf.get("current_term", 0)
 
         self.snapshot_file_name = base_path + ".snapshot"
         self.machine.load_file(self, self.snapshot_file_name)
@@ -437,7 +439,6 @@ class Raft:
             self.seek.append(seek)
             self.entries.append(json.loads(line))
 
-        self.current_term = 0
         if len(self.entries) > 1:
             self.machine.run(self.entries[1 : self.commit_index + 1])
 
@@ -492,6 +493,7 @@ class Raft:
         snapshot = req.get("snapshot")
         if snapshot is not None and req["snapshot_version"] >= self.snapshot_version:
             if req["snapshot_version"] > self.snapshot_version:
+                logger.info("snapshot received")
                 self.machine.reset(self, snapshot)
                 self.save_snapshot(req["snapshot_version"], [])
             return {
@@ -504,18 +506,21 @@ class Raft:
                 "term": self.current_term,
                 "success": False,
                 "snapshot_version": self.snapshot_version,
+                "msg": "missmatch snapshot",
             }
         if req["term"] < self.current_term:
             return {
                 "term": self.current_term,
                 "success": False,
                 "snapshot_version": self.snapshot_version,
+                "msg": "missmatch term",
             }
         if req["prev_log_index"] >= len(self.entries):
             return {
                 "term": self.current_term,
                 "success": False,
                 "snapshot_version": self.snapshot_version,
+                "msg": "missmatch prev_log_index",
             }
         else:
             if self.entries[req["prev_log_index"]]["term"] != req["prev_log_term"]:
@@ -523,6 +528,7 @@ class Raft:
                     "term": self.current_term,
                     "success": False,
                     "snapshot_version": self.snapshot_version,
+                    "msg": "missmatch prev_log_term",
                 }
 
         if len(req["entries"]) > 0:
@@ -593,8 +599,8 @@ class Raft:
             write_json_line(
                 f,
                 {
-                    "commit_index": self.commit_index,
-                    "snapshot_version": self.snapshot_version,
+                    "commit_index": 0,
+                    "snapshot_version": snapshot_version,
                     "last_index": self.last_applied,
                     "voted_for": self.voted_for,
                     "current_term": self.current_term,
@@ -607,19 +613,18 @@ class Raft:
                 seek.append(f.tell())
                 write_json_line(f, e)
 
-        with self.lock:
-            swap(
-                self.snapshot_file_name,
-                self.snapshot_file_name + ".tmp",
-            )
-            self.config = swap(self.config.name, self.config.name + ".tmp", "r+")
-            self.log = swap(self.log.name, self.log.name + ".tmp", "r+")
+        swap(
+            self.snapshot_file_name,
+            self.snapshot_file_name + ".tmp",
+        )
+        self.config = swap(self.config.name, self.config.name + ".tmp", "r+")
+        self.log = swap(self.log.name, self.log.name + ".tmp", "r+")
 
-            self.snapshot_version = snapshot_version
-            self.seek = [-1] + seek
-            self.entries = [{"term": self.current_term, "data": None}] + entries
-            self.commit_index = 0
-            self.last_applied = 0
+        self.snapshot_version = snapshot_version
+        self.seek = [-1] + seek
+        self.entries = [{"term": self.current_term, "data": None}] + entries
+        self.commit_index = 0
+        self.last_applied = 0
         logger.info("Snapshot done")
 
     def as_candidate(self):
@@ -658,7 +663,8 @@ class Raft:
         return self.state.results(query)
 
     def snapshot(self):
-        return self.state.snapshot()
+        with self.lock:
+            return self.state.snapshot()
 
 
 class RaftTest(Raft):

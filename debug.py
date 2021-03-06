@@ -14,4 +14,5 @@ def debug(sig, frame):
     i.interact(message)
 
 
+print("Debug")
 signal.signal(signal.SIGUSR1, debug)  # Register handler
