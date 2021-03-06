@@ -32,6 +32,7 @@ class Consumer:
 
         self.replicas = int(os.environ["N_REPLICAS"])
         time.sleep(3)
+        self.not_persisted_state = {}
         self.state_store = Client()
         self.i = 0
         self.start = 0
@@ -45,7 +46,7 @@ class Consumer:
             ):
                 payload = json.loads(body.decode("utf-8"))
                 #  print(payload)
-                # self.state_store.put(self.routing_key, payload["id"], payload)
+                self.state_store.put(self.routing_key, payload["id"], payload)
                 self.channel.basic_ack(method.delivery_tag)
                 data = payload["data"]
                 if data:
@@ -84,10 +85,11 @@ class Consumer:
         # state = self.state_store.get(self.routing_key, "state")
         # if state is not None:
         #    return state
-        return {}
+        return self.not_persisted_state
 
     def put_state(self, state):
-        self.state_store.put(self.routing_key, "state", state)
+        self.not_persisted_state = state
+        # self.state_store.put(self.routing_key, "state", state)
 
     def is_state_done(self):
         # TODO Caso borde: Si se cae entre que termino de aggregar y se resetea estado quedaría bloqueado intentando
@@ -143,6 +145,7 @@ class CounterBy(Consumer):
         return self.keyCount
 
     def aggregate(self, data):
+        # print(next(iter(data)))
         self.keyCount = self.get_state()
         for elem in data:
             self.keyCount[elem[self.keyId]] = self.keyCount.get(elem[self.keyId], 0) + 1

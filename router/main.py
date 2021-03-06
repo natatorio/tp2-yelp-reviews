@@ -43,50 +43,29 @@ class Router:
         self.replicas = int(os.environ.get("N_REPLICAS", "1"))
 
     def consume_business(self):
-        try:
-            count_down = 1
-            for method, props, body in self.channel.consume(
-                self.business_queue, auto_ack=False
-            ):
-                payload = json.loads(body.decode("utf-8"))
-                business = payload["data"]
-                if business:
-                    business_cities = [
-                        {"city": b["city"], "business_id": b["business_id"]}
-                        for b in business
-                    ]
+        for method, props, body in self.channel.consume(
+            self.business_queue, auto_ack=False
+        ):
+            payload = json.loads(body.decode("utf-8"))
+            business = payload["data"]
+            if business:
+                self.route_business(business, props, payload)
+                self.channel.basic_ack(method.delivery_tag)
+            else:
+                count_down = payload.get("count_down", self.replicas)
+                if count_down > 1:
+                    payload["count_down"] = count_down - 1
                     self.channel.basic_publish(
-                        exchange="reviews",
+                        exchange="data",
                         routing_key="business",
                         properties=props,
-                        body=json.dumps({**payload, "data": business_cities}),
+                        body=json.dumps(payload),
                     )
-                    self.channel.basic_ack(method.delivery_tag)
                 else:
-                    count_down = payload.get("count_down", self.replicas)
-                    self.channel.basic_ack(method.delivery_tag)
-                    break
-        finally:
-            self.channel.cancel()
-        if count_down > 1:
-            self.channel.basic_publish(
-                exchange="data",
-                routing_key="business",
-                properties=props,
-                body=json.dumps(
-                    {
-                        "data": None,
-                        "count_down": count_down - 1,
-                    }
-                ),
-            )
-        else:
-            self.channel.basic_publish(
-                exchange="reviews",
-                routing_key="business",
-                properties=props,
-                body=json.dumps({"data": None}),
-            )
+                    self.route_business(None, props, payload)
+                self.channel.basic_ack(method.delivery_tag)
+                break
+        self.channel.cancel()
 
     def consume_reviews(self):
         for method, props, body in self.channel.consume(
@@ -100,22 +79,38 @@ class Router:
             else:
                 count_down = payload.get("count_down", self.replicas)
                 if count_down > 1:
+                    payload["count_down"] = count_down - 1
                     self.channel.basic_publish(
                         exchange="data",
                         routing_key="review",
                         properties=props,
-                        body=json.dumps(
-                            {
-                                "data": None,
-                                "count_down": count_down - 1,
-                            }
-                        ),
+                        body=json.dumps(payload),
                     )
                 else:
                     self.route_review(None, props, payload)
                 self.channel.basic_ack(method.delivery_tag)
                 break
         self.channel.cancel()
+
+    def route_business(self, business, props, context):
+        business_cities = None
+        if business:
+            business_cities = [
+                {"city": b["city"], "business_id": b["business_id"]}
+                for b in business
+            ]
+            self.channel.basic_publish(
+                exchange="reviews",
+                routing_key="business",
+                properties=props,
+                body=json.dumps({**context, "data": business_cities}),
+            )
+        self.channel.basic_publish(
+            exchange="reviews",
+            routing_key="business",
+            properties=props,
+            body=json.dumps({**context, "data": business_cities}),
+        )
 
     def route_review(self, reviews, props, context):
         funny = None

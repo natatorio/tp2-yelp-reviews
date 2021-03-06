@@ -8,9 +8,9 @@ import pprint
 REVIEWS_DATASET_FILEPATH = "data/yelp_academic_dataset_review.json.zip"
 BUSINESS_DATASET_FILEPATH = "data/yelp_academic_dataset_business.json.zip"
 CHUNK_SIZE = 1 * 1024 * 1024
-MAX_REVIEWS = 900000
+MAX_REVIEWS = 500000
 # 9000000000  #  8021122 Hasta 1 chunk de más
-MAX_BUSINESS = 50000000  # 209393
+MAX_BUSINESS = 20000  # 209393
 QUERIES = 5
 
 
