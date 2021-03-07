@@ -19,7 +19,7 @@ class Consumer:
         logger.info("start consuming %s", self.pipe_in)
         acc = {}
         try:
-            for payload, ack in self.pipe_in.recv(False):
+            for payload, ack in self.pipe_in.recv():
                 ack()
                 data = payload["data"]
                 if data:
@@ -90,6 +90,9 @@ class CounterBy(Scatter):
     def __init__(self, pipe_in, pipes_out, key_id):
         super().__init__(pipe_in, pipes_out)
         self.key_id = key_id
+
+    def run(self):
+        super().run(self.aggregate)
 
     def aggregate(self, acc, data):
         for elem in data:

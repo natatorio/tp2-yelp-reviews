@@ -6,8 +6,8 @@ import pipe
 def main():
     healthServer = HealthServer()
     joiner = Joiner(
-        left_in=pipe.consume_star5,
-        right_in=pipe.consume_star5_data,
+        left_in=pipe.consume_star5(),
+        right_in=pipe.consume_star5_data(),
         join_out=pipe.annon(),
     )
 

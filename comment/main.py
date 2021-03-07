@@ -11,33 +11,22 @@ def main():
         join_out=pipe.annon(),
     )
 
-    def count(acc, data):
+    def aggregate(key_count, data):
         for elem in data:
-            acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
-        return acc
-
-    def aggregate(self, data):
-        self.keyCount = self.get_state()
-        for elem in data:
-            commentCount = self.keyCount.get(elem[self.keyId])
+            commentCount = key_count.get(elem["user_id"])
             if commentCount and commentCount[0] == elem["text"]:
-                self.keyCount[elem[self.keyId]] = (commentCount[0], commentCount[1] + 1)
+                key_count[elem["user_id"]] = (commentCount[0], commentCount[1] + 1)
             else:
-                self.keyCount[elem[self.keyId]] = (elem["text"], 1)
-        self.put_state(self.keyCount)
+                key_count[elem["user_id"]] = (elem["text"], 1)
+        return key_count
 
-    def join(left, rigth):
-        return {k: v[1] for (k, v) in rigth.items() if rigth[k][1] == left.get(k, 0)}
+    def nothing(acc, data):
+        return data
 
-    joiner.run(,join)
-    LastCommentCountPerUser = joiner.count()
-    print("count ready")
-    allSameCommentReviewsPerRelevantUser = joiner.join(LastCommentCountPerUser)
-    print(len(LastCommentCountPerUser), " Users")
-    print(
-        len(allSameCommentReviewsPerRelevantUser),
-        " Relevant users always commenting the same",
-    )
+    def join(left, right):
+        return {k: v[1] for (k, v) in left.items() if left[k][1] == right.get(k, 0)}
+
+    joiner.run(aggregate, nothing, join)
     joiner.close()
     healthServer.stop()
 

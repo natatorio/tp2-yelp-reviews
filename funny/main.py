@@ -21,7 +21,9 @@ def main():
 
     healthServer = HealthServer()
     querier = CounterBy(
-        pipe.consume_funny, [Formatted(pipe.annon(), topTenFunnyPerCity)], key_id="city"
+        pipe.consume_funny(),
+        [Formatted(pipe.annon(), topTenFunnyPerCity)],
+        key_id="city",
     )
     querier.run()
     healthServer.stop()

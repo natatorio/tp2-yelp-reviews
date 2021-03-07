@@ -2,12 +2,17 @@ from consumers import CounterBy
 from health_server import HealthServer
 
 import pipe
+from pipe import Formatted
 
 
 def main():
     healthServer = HealthServer()
-    counter = CounterBy(pipe.consume_histogram, [pipe.annon()], key_id="weekday")
-    counter.run(lambda histogram: ("histogram", histogram))
+    counter = CounterBy(
+        pipe.consume_histogram(),
+        [Formatted(pipe.annon(), lambda histogram: ("histogram", histogram))],
+        key_id="weekday",
+    )
+    counter.run()
     counter.close()
     healthServer.stop()
 

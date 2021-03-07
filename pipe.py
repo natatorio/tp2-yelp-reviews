@@ -55,6 +55,9 @@ class Formatted:
     def send(self, data):
         self.sender.send(self.formatter(data))
 
+    def close(self):
+        self.sender.close()
+
 
 class Recv:
     def recv(self, auto_ack=False):

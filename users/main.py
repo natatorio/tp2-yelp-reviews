@@ -27,6 +27,7 @@ def main():
         ],
         key_id="user_id",
     )
+    counter.run()
     counter.close()
     healthServer.stop()
 
