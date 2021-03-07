@@ -1,32 +1,19 @@
 import datetime
 import hashlib
-import json
 import os
-import pika
+from pipe import Pipe
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("Mapper")
+logger.setLevel(logging.INFO)
 
 
 class Mapper:
-    def __init__(self, exchange, outExchange, routing_key):
-        self.routing_key = routing_key
-        self.outExchange = outExchange
-        self.inExchange = exchange
-        self.connection = pika.BlockingConnection(
-            parameters=pika.URLParameters(url=os.environ["AMQP_URL"])
-        )
-        self.channel = self.connection.channel()
-
-        self.channel.exchange_declare(exchange=exchange, exchange_type="direct")
-        self.consumer_queue = self.channel.queue_declare(
-            queue=routing_key + ".MAP_QUEUE", durable=True
-        ).method.queue
-
-        self.channel.queue_bind(
-            exchange=exchange,
-            queue=self.consumer_queue,
-            routing_key=self.routing_key,
-        )
-
-        self.replicas = int(os.environ.get("N_REPLICAS", "1"))
+    def __init__(self, pipe_in: Pipe, pipe_out: Pipe):
+        self.pipe_in = pipe_in
+        self.pipe_out = pipe_out
+        self.replicas = int(os.environ.get("N_REPLICAS", 1))
 
     def prepare(self):
         return
@@ -35,103 +22,83 @@ class Mapper:
         return None
 
     def run(self):
-        print(
-            "Start mapping", self.inExchange, self.routing_key, "->", self.outExchange
-        )
+        logger.info("start mapping: %s -> %s", self.pipe_in, self.pipe_out)
         try:
             self.prepare()
-            for method, props, body in self.channel.consume(
-                self.consumer_queue, auto_ack=False
-            ):
-                payload = json.loads(body.decode("utf-8"))
+            for payload, ack in self.pipe_in.recv():
                 data = payload["data"]
                 if data:
                     mapped_data = self.map(data)
-                    self.channel.basic_publish(
-                        exchange=self.outExchange,
-                        routing_key=self.routing_key,
-                        properties=props,
-                        body=json.dumps({**payload, "data": mapped_data}),
-                    )
-                    self.channel.basic_ack(method.delivery_tag)
+                    self.pipe_out.send({**payload, "data": mapped_data})
                 else:
                     count_down = payload.pop("count_down", self.replicas)
                     if count_down <= 1:
-                        print("count_down done, forward eof")
-                        self.channel.basic_publish(
-                            exchange=self.outExchange,
-                            routing_key=self.routing_key,
-                            properties=props,
-                            body=json.dumps({**payload, "data": None}),
+                        logger.info(
+                            "count_down done: %s -> %s",
+                            self.pipe_in,
+                            self.pipe_out,
                         )
+                        self.pipe_in.send({**payload, "data": None})
                     else:
-                        print("count_down", count_down)
-                        self.channel.basic_publish(
-                            exchange=self.inExchange,
-                            routing_key=self.routing_key,
-                            properties=props,
-                            body=json.dumps(
-                                {
-                                    **payload,
-                                    "data": None,
-                                    "count_down": count_down - 1,
-                                }
-                            ),
+                        logger.info(
+                            "count_down %s: %s -> %s",
+                            count_down,
+                            self.pipe_in,
+                            self.pipe_out,
                         )
-                    self.channel.basic_ack(method.delivery_tag)
+                        self.pipe_out.send(
+                            {
+                                **payload,
+                                "data": None,
+                                "count_down": count_down - 1,
+                            }
+                        )
                     break
+                ack()
         finally:
-            self.channel.cancel()
-            self.connection.close()
-        print("Done mapping", self.inExchange, self.routing_key, "->", self.outExchange)
+            self.pipe_in.cancel()
+        logger.info("done mapping: %s -> %s", self.pipe_in, self.pipe_out)
 
 
-class FunnyMapper(Mapper):
-    def prepare(self):
-        self.data = None
-        self.business_queue = self.channel.queue_declare(
-            queue=self.routing_key + ".DATA",
-            durable=True,
-        ).method.queue
-        self.business_routing_key = self.routing_key + ".DATA"
-        self.channel.queue_bind(
-            exchange=self.inExchange,
-            queue=self.business_queue,
-            routing_key=self.business_routing_key,
-        )
+class Pop:
+    def __init__(self, pipe_in) -> None:
+        self.pipe_in = pipe_in
+        self.replicas = int(os.environ.get("N_REPLICAS", 1))
+
+    def pop(self):
+        logger.info("start waiting item: %s", self.pipe_in)
+        data = None
         try:
-            for method, props, body in self.channel.consume(
-                self.business_queue, auto_ack=False
-            ):
-                payload = json.loads(body.decode("utf-8"))
-                self.data = payload["data"]
+            for payload, ack in self.pipe_in.recv():
+                data = payload["data"]
                 count_down = payload.pop("count_down", self.replicas)
                 if count_down > 1:
                     print("count_down:", count_down)
-                    self.channel.basic_publish(
-                        exchange=self.inExchange,
-                        routing_key=self.business_routing_key,
-                        properties=props,
-                        body=json.dumps(
-                            {
-                                **payload,
-                                "data": self.data,
-                                "count_down": count_down - 1,
-                            }
-                        ),
+                    self.pipe_in.send(
+                        {
+                            **payload,
+                            "count_down": count_down - 1,
+                        }
                     )
-                else:
-                    print("count_down done")
-                self.channel.basic_ack(method.delivery_tag)
+                ack()
                 break
         finally:
-            self.channel.cancel()
-        print("prepare ready")
-        return None
+            self.pipe_in.cancel()
+        logger.info("end waiting item: %s", self.pipe_in)
+        return data
+
+
+class FunnyMapper(Mapper):
+    def __init__(self, pipe_in: Pipe, pipe_out: Pipe, business_cities: Pop):
+        super().__init__(pipe_in, pipe_out)
+        self.business_cities = business_cities
+
+    def prepare(self):
+        self.business_city = self.business_cities.pop()
 
     def map(self, reviews):
         return [
-            {"city": self.data.get(r["business_id"], "Unknown")}
+            {"city": self.business_city.get(r["business_id"], "Unknown")}
             for r in reviews
             if r["funny"] != 0
         ]

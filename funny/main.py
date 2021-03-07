@@ -1,24 +1,29 @@
 from consumers import CounterBy
 from health_server import HealthServer
 
+import pipe
+from pipe import Formatted
+
 
 def main():
-    healthServer = HealthServer()
-    while True:
-        querier = CounterBy(keyId="city", exchange="reviews", routing_key="funny")
-        funnyPerCity = querier.count()
-        topTenFunnyPerCity = {
-            fun: city
-            for (city, fun) in sorted(
-                funnyPerCity.items(),
-                key=lambda item: item[1],
-                reverse=True,
-            )[:10]
-        }
+    def topTenFunnyPerCity(funnyPerCity):
+        return (
+            "funny",
+            {
+                fun: city
+                for (city, fun) in sorted(
+                    funnyPerCity.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )[:10]
+            },
+        )
 
-        print(len(funnyPerCity), " Funny Cities")
-        querier.reply(("funny", topTenFunnyPerCity))
-        querier.close()
+    healthServer = HealthServer()
+    querier = CounterBy(
+        pipe.consume_funny, [Formatted(pipe.annon(), topTenFunnyPerCity)], key_id="city"
+    )
+    querier.run()
     healthServer.stop()
 
 

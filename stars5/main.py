@@ -1,24 +1,29 @@
-from consumers import JoinerCounterBy
+from consumers import Joiner
 from health_server import HealthServer
+import pipe
 
 
 def main():
     healthServer = HealthServer()
-    while True:
-        querier = JoinerCounterBy(
-            keyId="user_id",
-            exchange="reviews",
-            routing_key="stars5",
-        )
-        stars5ReviewsPerUser = querier.count()
-        allStars5ReviewsPerRelevantUser = querier.join(stars5ReviewsPerUser)
+    joiner = Joiner(
+        left_in=pipe.consume_star5,
+        right_in=pipe.consume_star5_data,
+        join_out=pipe.annon(),
+    )
 
-        print(len(stars5ReviewsPerUser), " Users reviewing with 5 star")
-        print(
-            len(allStars5ReviewsPerRelevantUser),
-            " Relevant Users reviewing all with 5 star",
-        )
-        querier.close()
+    def join(left, right):
+        return {k: v for (k, v) in right.items() if right[k] == left.get(k, 0)}
+
+    def count(acc, data):
+        for elem in data:
+            acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
+        return acc
+
+    def nothing(acc, data):
+        return data
+
+    joiner.run(count, nothing, join)
+    joiner.close()
     healthServer.stop()
 
 

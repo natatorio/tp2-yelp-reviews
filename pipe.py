@@ -4,8 +4,9 @@ import logging
 import pika
 import os
 
-
+logging.basicConfig(level=logging.ERROR)
 LOG = logging.getLogger("pipe")
+LOG.setLevel(logging.INFO)
 RETRIES = 3
 
 
@@ -19,15 +20,18 @@ class Connection:
     def __init__(self) -> None:
         self.connection = open_connection()
 
+    def close(self):
+        self.connection.close()
+
     def channel(self):
         i = 0
         while i < RETRIES:
             try:
-                if self.connection.is_closed():
+                if self.connection.is_closed:
                     self.connection = open_connection()
                 return self.connection.channel()
             except Exception as e:
-                LOG.error(f"while trying to get channel {str(e)}")
+                LOG.exception(f"while trying to get channel {str(e)}")
             i += 1
         raise Exception("Couldn't instantiate channel")
 
@@ -35,31 +39,71 @@ class Connection:
 CONNECTION = Connection()
 
 
-class Pipe:
+class Send:
+    def send(self, data):
+        return
+
+    def close(self):
+        return
+
+
+class Formatted:
+    def __init__(self, sender, formatter) -> None:
+        self.sender = sender
+        self.formatter = formatter
+
+    def send(self, data):
+        self.sender.send(self.formatter(data))
+
+
+class Recv:
+    def recv(self, auto_ack=False):
+        return
+
+    def close(self):
+        return
+
+
+class Pipe(Send, Recv):
     def __init__(self, exchange, routing_key, queue):
         self.connection = CONNECTION
 
-        self.exchange = exchange
-        self.queue = queue
-        self.routing_key = routing_key
-
         self.channel = self.connection.channel()
-        self.channel.exchange_declare(exchange=self.exchange, exchange_type="direct")
-        self.channel.queue_declare(queue=self.queue, durable=True)
-        self.channel.queue_bind(
-            exchange=self.exchange,
-            queue=self.queue,
-            routing_key=self.routing_key,
-        )
+        self.exchange = exchange
+        if exchange:
+            self.channel.exchange_declare(
+                exchange=self.exchange, exchange_type="direct"
+            )
 
-    def recv(self):
+        self.queue = queue
+        queue_response = self.channel.queue_declare(queue=queue, durable=True)
+        if not queue:
+            self.queue = queue_response.method.queue
+
+        self.routing_key = self.queue
+        if routing_key:
+            self.routing_key = routing_key
+
+        if self.exchange and self.queue:
+            self.channel.queue_bind(
+                exchange=self.exchange,
+                queue=self.queue,
+                routing_key=self.routing_key,
+            )
+
+    def __str__(self) -> str:
+        return f"Pipe[{self.exchange},{self.routing_key},{self.queue}]"
+
+    def recv(self, auto_ack=False):
         i = 0
         while i < RETRIES:
             try:
-                for method, _, body in self.channel.consume(self.queue, auto_ack=False):
+                for method, _, body in self.channel.consume(
+                    self.queue, auto_ack=auto_ack
+                ):
                     yield (
-                        lambda: self.channel.basic_ack(method.delivery_tag),
                         json.loads(body.decode("utf-8")),
+                        lambda: self.channel.basic_ack(method.delivery_tag),
                     )
                 return
             except Exception as e:
@@ -68,13 +112,24 @@ class Pipe:
             i += 1
         raise Exception("Couldn't instantiate channel")
 
+    def cancel(self):
+        self.channel.cancel()
+
+    def close(self):
+        self.channel.close()
+        self.connection.close()
+
     def send(self, data):
+        routing_key_override = self.routing_key
+        if data.get("reply"):
+            routing_key_override = data["reply"]
+
         i = 0
         while i < RETRIES:
             try:
                 return self.channel.basic_publish(
                     exchange=self.exchange,
-                    routing_key=self.routing_key,
+                    routing_key=routing_key_override,
                     body=json.dumps(data),
                 )
             except Exception as e:
@@ -82,6 +137,12 @@ class Pipe:
                 self.channel = self.connection.channel()
             i += 1
         raise Exception("Couldn't instantiate channel")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self):
+        self.close()
 
 
 # routed by reviews
@@ -145,3 +206,21 @@ def data_business():
 
 def data_review():
     return Pipe(exchange="data", routing_key="review", queue="review.QUEUE")
+
+
+def annon():
+    return Pipe(exchange="", routing_key="", queue="")
+
+
+# data_business
+#     consume_business
+#         map_funny_data
+
+# data_reviews
+#    consume_users
+#    map_comment
+#    map_funny
+#     consume_funny
+#    map_histogram
+#    map_stars5 x consume_star5_data
+#     consume_star5

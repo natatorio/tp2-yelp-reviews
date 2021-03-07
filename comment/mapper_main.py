@@ -1,11 +1,12 @@
 from mapper import CommentMapper
 from health_server import HealthServer
+import pipe
 
 
 def main():
     healthServer = HealthServer()
+    mapper = CommentMapper(pipe.map_comment(), pipe.consume_comment())
     while True:
-        mapper = CommentMapper("map", "reviews", "comment")
         mapper.run()
     healthServer.stop()
 

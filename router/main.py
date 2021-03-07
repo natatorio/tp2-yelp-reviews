@@ -96,15 +96,8 @@ class Router:
         business_cities = None
         if business:
             business_cities = [
-                {"city": b["city"], "business_id": b["business_id"]}
-                for b in business
+                {"city": b["city"], "business_id": b["business_id"]} for b in business
             ]
-            self.channel.basic_publish(
-                exchange="reviews",
-                routing_key="business",
-                properties=props,
-                body=json.dumps({**context, "data": business_cities}),
-            )
         self.channel.basic_publish(
             exchange="reviews",
             routing_key="business",

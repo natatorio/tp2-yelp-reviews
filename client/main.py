@@ -1,9 +1,12 @@
-import time
 import json
-import os
-import pika
 import zipfile
 import pprint
+import logging
+import pipe
+
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger("client")
+logger.setLevel(logging.INFO)
 
 REVIEWS_DATASET_FILEPATH = "data/yelp_academic_dataset_review.json.zip"
 BUSINESS_DATASET_FILEPATH = "data/yelp_academic_dataset_business.json.zip"
@@ -14,123 +17,92 @@ MAX_BUSINESS = 20000  # 209393
 QUERIES = 5
 
 
-def main():
-    session_id = 1
-    print("Setup rabbitmq connection")
-    amqp_url = os.environ["AMQP_URL"]
-    parameters = pika.URLParameters(amqp_url)
-
-    print(f"Session: {session_id}")
-    connection = pika.BlockingConnection(parameters)
-    channel = connection.channel()
-    channel.exchange_declare(exchange="data", exchange_type="direct")
-    print("Start processing")
-
-    def publish__file(file_path, chunk_size, max_size, publish):
-        with open(file_path, "r") as f:
-            item_count = 0
-            lines = f.readlines(chunk_size)
-            while lines and item_count < max_size:
-                chunk = [json.loads(line) for line in lines]
-                item_count += len(chunk)
-                publish(
-                    body={
-                        "data": chunk,
-                        "session_id": session_id,
-                        "id": item_count,
-                    }
-                )
+def publish_file(
+    file_path,
+    chunk_size,
+    max_size,
+    session_id,
+    pipe_out: pipe.Pipe,
+):
+    item_count = 0
+    with zipfile.ZipFile(file_path) as z:
+        for zname in z.namelist():
+            with z.open(zname) as f:
                 lines = f.readlines(chunk_size)
-        print(item_count, "items read from ", file_path)
-        return item_count
-
-    def publish_file(file_path, chunk_size, max_size, publish):
-        item_count = 0
-        with zipfile.ZipFile(file_path) as z:
-            for zname in z.namelist():
-                with z.open(zname) as f:
+                while lines and item_count < max_size:
+                    chunk = [json.loads(line) for line in lines]
+                    item_count += len(chunk)
+                    pipe_out.send(
+                        {
+                            "data": chunk,
+                            "session_id": session_id,
+                            "id": item_count,
+                        }
+                    )
                     lines = f.readlines(chunk_size)
-                    while lines and item_count < max_size:
-                        chunk = [json.loads(line) for line in lines]
-                        item_count += len(chunk)
-                        publish(
-                            body={
-                                "data": chunk,
-                                "session_id": session_id,
-                                "id": item_count,
-                            }
-                        )
-                        lines = f.readlines(chunk_size)
-        print(item_count, "items read from ", file_path)
-        return item_count
+    logger.info("%s items read from %s", item_count, file_path)
+    return item_count
 
-    items = -1
-    try:
-        items = publish_file(
-            file_path=BUSINESS_DATASET_FILEPATH,
-            chunk_size=CHUNK_SIZE,
-            max_size=MAX_BUSINESS,
-            publish=lambda body: channel.basic_publish(
-                exchange="data",
-                routing_key="business",
-                body=json.dumps(body),
-            ),
-        )
-    finally:
-        channel.basic_publish(
-            exchange="data",
-            routing_key="business",
-            body=json.dumps(
+
+def main():
+    reports_queue = "reports"
+    with pipe.Pipe(
+        exchange="", routing_key=reports_queue, queue=reports_queue
+    ) as reports, pipe.data_business() as business, pipe.data_review() as reviews:
+
+        session_id = 1
+
+        logger.info("start session: %s", session_id)
+        logger.info("loading business")
+        items = -1
+        try:
+            items = publish_file(
+                file_path=BUSINESS_DATASET_FILEPATH,
+                chunk_size=CHUNK_SIZE,
+                max_size=MAX_BUSINESS,
+                session_id=session_id,
+                pipe_out=business,
+            )
+        finally:
+            business.send(
                 {
                     "id": items + 1,
                     "data": None,
                     "session_id": session_id,
                 }
-            ),
-        )
+            )
 
-    print("Callback queue setup")
-    callback_queue = channel.queue_declare(queue="", exclusive=True).method.queue
-
-    items = -1
-    try:
-        items = publish_file(
-            file_path=REVIEWS_DATASET_FILEPATH,
-            chunk_size=CHUNK_SIZE,
-            max_size=MAX_REVIEWS,
-            publish=lambda body: channel.basic_publish(
-                exchange="data",
-                routing_key="review",
-                body=json.dumps(body),
-            ),
-        )
-    finally:
-        channel.basic_publish(
-            exchange="data",
-            routing_key="review",
-            body=json.dumps(
+        logger.info("loading reviews")
+        items = -1
+        try:
+            items = publish_file(
+                file_path=REVIEWS_DATASET_FILEPATH,
+                chunk_size=CHUNK_SIZE,
+                max_size=MAX_REVIEWS,
+                session_id=session_id,
+                pipe_out=reviews,
+            )
+        finally:
+            reviews.send(
                 {
                     "id": items + 1,
                     "data": None,
-                    "reply": callback_queue,
+                    "reply": reports_queue,
                     "session_id": session_id,
                 }
-            ),
-        )
+            )
 
-    print("Waiting for Report")
-    connection.process_data_events()
-    report = {}
-    for method, props, body in channel.consume(callback_queue, auto_ack=True):
-        key, val = json.loads(body.decode("utf-8"))
-        report[key] = val
-        print(f"{key} = ", flush=False)
-        pprint.pprint(val)
-        if len(report) >= 5:
-            break
+        logger.info("waiting report")
+        report = {}
+        for payload, _ in reports.recv(auto_ack=True):
+            key, val = payload["data"]
+            report[key] = val
+            logger.info("%s = ", key)
+            pprint.pprint(val)
+            if len(report) >= 5:
+                break
 
-    channel.cancel()
-    connection.close()
+        logger.info("end session %s", session_id)
 
 
 if __name__ == "__main__":

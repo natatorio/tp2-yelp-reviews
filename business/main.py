@@ -1,16 +1,20 @@
-from consumers import BusinessConsumer
+from consumers import Scatter
 from health_server import HealthServer
+import pipe
 
 
 def main():
+    def aggregate(acc, data):
+        for elem in data:
+            acc[elem["business_id"]] = elem["city"]
+        return acc
+
     healthServer = HealthServer()
-    while True:
-        bc = BusinessConsumer(exchange="reviews", routing_key="business")
-        businessCities = bc.get_business_cities()
-        print("forward")
-        bc.forward("map", "funny", businessCities)
-        print(len(businessCities), " Business Processed")
-        bc.close()
+    business_consumer = Scatter(
+        pipe_in=pipe.consume_business(), pipes_out=[pipe.map_funny_data()]
+    )
+    business_consumer.run(aggregate=aggregate)
+    business_consumer.close()
     healthServer.stop()
 
 

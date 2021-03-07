@@ -1,11 +1,12 @@
 from mapper import HistogramMapper
 from health_server import HealthServer
+import pipe
 
 
 def main():
     healthServer = HealthServer()
+    mapper = HistogramMapper(pipe.map_histogram(), pipe.consume_histogram())
     while True:
-        mapper = HistogramMapper("map", "reviews", "histogram")
         mapper.run()
     healthServer.stop()
 

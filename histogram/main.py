@@ -1,15 +1,14 @@
 from consumers import CounterBy
 from health_server import HealthServer
 
+import pipe
+
 
 def main():
     healthServer = HealthServer()
-    while True:
-        counter = CounterBy(keyId="weekday", exchange="reviews", routing_key="histogram")
-        histogram = counter.count()
-        print("histogram", histogram, counter.reply_to)
-        counter.reply(("histogram", histogram))
-        counter.close()
+    counter = CounterBy(pipe.consume_histogram, [pipe.annon()], key_id="weekday")
+    counter.run(lambda histogram: ("histogram", histogram))
+    counter.close()
     healthServer.stop()
 
 

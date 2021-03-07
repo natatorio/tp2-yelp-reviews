@@ -1,22 +1,33 @@
 from consumers import CounterBy
 from health_server import HealthServer
+import pipe
+from pipe import Formatted
 
 
 def main():
-    healthServer = HealthServer()
-    while True:
-        counter = CounterBy(keyId="user_id", exchange="reviews", routing_key="users")
-        user_count = counter.count()
-        user_count_5 = dict([u for u in user_count.items() if u[1] >= 3])
-        user_count_50 = dict([u for u in user_count_5.items() if u[1] >= 15])
-        user_count_150 = dict([u for u in user_count_50.items() if u[1] >= 100])
-        counter.forward("reviews", "stars5", user_count_50)
-        counter.forward("reviews", "comment", user_count_5)
+    def user_count_5(user_count):
+        return dict([u for u in user_count.items() if u[1] >= 3])
 
-        print(len(user_count_50), " Users with more than 50 reviews")
-        counter.reply(("user_150", user_count_150))
-        # counter.reply(("user_50", user_count_50))
-        counter.close()
+    def user_count_50(user_count):
+        return dict([u for u in user_count_5(user_count).items() if u[1] >= 15])
+
+    def user_count_150(user_count):
+        return (
+            "users_150",
+            dict([u for u in user_count_50(user_count).items() if u[1] >= 100]),
+        )
+
+    healthServer = HealthServer()
+    counter = CounterBy(
+        pipe.consume_users(),
+        [
+            Formatted(pipe.consume_star5_data(), user_count_50),
+            Formatted(pipe.consume_comment_data(), user_count_5),
+            Formatted(pipe.annon(), user_count_150),
+        ],
+        key_id="user_id",
+    )
+    counter.close()
     healthServer.stop()
 
 
