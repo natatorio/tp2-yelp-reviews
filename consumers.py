@@ -1,3 +1,4 @@
+from filters import Filter, MapperScatter, ReducerScatter
 import os
 from threading import RLock, Thread, Barrier
 from typing import List
@@ -50,23 +51,8 @@ class Consumer:
 
 class Scatter:
     def __init__(self, pipe_in: Pipe, pipes_out: List[Send]):
-        self.consumer = Consumer(pipe_in=pipe_in)
+        self.consumer = Filter(pipe_in=pipe_in)
         self.pipes_out = pipes_out
-
-    def done(self, end_mark, acc):
-        for pipe_out in self.pipes_out:
-            pipe_out.send(
-                {
-                    **end_mark,
-                    "data": acc,
-                }
-            )
-            pipe_out.send(
-                {
-                    **end_mark,
-                    "data": None,
-                }
-            )
 
     def close(self):
         self.consumer.close()
@@ -74,7 +60,12 @@ class Scatter:
             out.close()
 
     def run(self, aggregate):
-        self.consumer.run(done=self.done, aggregate=aggregate)
+        self.consumer.run(
+            ReducerScatter(
+                step_fn=aggregate,
+                pipes_out=self.pipes_out,
+            )
+        )
 
 
 class CounterBy(Scatter):
@@ -140,6 +131,3 @@ class Joiner:
         self.left_consume.close()
         self.right_consumer.close()
         self.join_out.close()
-
-    def join_function(self, dictA):
-        return {k: v for (k, v) in dictA.items() if dictA[k] == self.data.get(k, 0)}
