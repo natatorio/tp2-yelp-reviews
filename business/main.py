@@ -11,7 +11,7 @@ def main():
 
     healthServer = HealthServer()
     business_consumer = Scatter(
-        pipe_in=pipe.consume_business(), pipes_out=[pipe.map_funny_data()]
+        pipe_in=pipe.consume_business(), pipes_out=[pipe.pub_funny_data()]
     )
     business_consumer.run(aggregate=aggregate)
     business_consumer.close()

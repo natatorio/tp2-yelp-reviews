@@ -201,8 +201,12 @@ def consume_users():
 
 
 # routed by map
-def map_funny_data():
-    return Pipe(exchange="map", routing_key="funny.DATA", queue="funny.DATA")
+def pub_funny_data():
+    return Send(exchange="map", routing_key="funny.DATA")
+
+
+def sub_map_funny_data():
+    return Pipe(exchange="map", routing_key="funny.DATA", queue="")
 
 
 def map_funny():

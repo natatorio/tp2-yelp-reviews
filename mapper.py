@@ -1,8 +1,9 @@
 import datetime
 import hashlib
-import os
+from threading import Event, Thread
 from typing import List
 from pipe import Pipe, Send
+from filters import Filter, MapperScatter, Notify
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -12,93 +13,52 @@ logger.setLevel(logging.INFO)
 
 class Mapper:
     def __init__(self, pipe_in: Pipe, pipes_out: List[Send]):
-        self.pipe_in = pipe_in
+        self.refiner = Filter(pipe_in)
         self.pipes_out = pipes_out
-        self.replicas = int(os.environ.get("N_REPLICAS", 1))
 
     def run(self, map_fn, prepare=lambda: None):
-        logger.info("start mapping: %s -> %s", self.pipe_in, self.pipes_out)
-        try:
-            prepare()
-            for payload, ack in self.pipe_in.recv():
-                data = payload["data"]
-                if data:
-                    mapped_data = map_fn(data)
-                    for pipe_out in self.pipes_out:
-                        pipe_out.send({**payload, "data": mapped_data})
-                else:
-                    count_down = payload.pop("count_down", self.replicas)
-                    if count_down <= 1:
-                        logger.info(
-                            "count_down done: %s -> %s",
-                            self.pipe_in,
-                            self.pipes_out,
-                        )
-                        self.pipe_in.send({**payload, "data": None})
-                    else:
-                        logger.info(
-                            "count_down %s: %s -> %s",
-                            count_down,
-                            self.pipe_in,
-                            self.pipes_out,
-                        )
-                        for pipe_out in self.pipes_out:
-                            pipe_out.send(
-                                {
-                                    **payload,
-                                    "data": None,
-                                    "count_down": count_down - 1,
-                                }
-                            )
-                        prepare()
-                ack()
-        finally:
-            self.pipe_in.cancel()
-        logger.info("done mapping: %s -> %s", self.pipe_in, self.pipes_out)
+        self.refiner.run(
+            cursor=MapperScatter(
+                map_fn=map_fn,
+                start_fn=prepare,
+                pipes_out=self.pipes_out,
+            )
+        )
 
 
-class Pop:
-    def __init__(self, pipe_in) -> None:
-        self.pipe_in = pipe_in
-        self.replicas = int(os.environ.get("N_REPLICAS", 1))
+class FunnyMapper:
+    def __init__(self, pipe_in: Pipe, pipe_out: Send, business_cities: Pipe):
+        self.refiner = Filter(pipe_in)
+        self.business_cities = Filter(business_cities)
+        self.pipes_out = [pipe_out]
+        self.business_done = Event()
+        self.business_taken = Event()
 
-    def pop(self):
-        logger.info("start waiting item: %s", self.pipe_in)
-        data_payload = None
-        try:
-            for payload, ack in self.pipe_in.recv():
-                if payload["data"] is None:
-                    ack()
-                    continue
-                else:
-                    data_payload = payload
-                    count_down = payload.pop("count_down", self.replicas)
-                    if count_down > 1:
-                        logger.info("count_down: %s", count_down)
-                        self.pipe_in.send(
-                            {
-                                **payload,
-                                "count_down": count_down - 1,
-                            }
-                        )
-                    ack()
-                    break
-        finally:
-            self.pipe_in.cancel()
-        logger.info("end waiting item: %s", self.pipe_in)
-        return data_payload["data"]
+    def on_business_done(self, data):
+        self.business_city = data
+        self.business_done.set()
+        self.business_taken.wait()
+        self.business_taken.clear()
 
-
-class FunnyMapper(Mapper):
-    def __init__(self, pipe_in: Pipe, pipe_out: Pipe, business_cities: Pop):
-        super().__init__(pipe_in, [pipe_out])
-        self.business_cities = business_cities
+    def consume_business(self):
+        self.business_cities.run(Notify(observer=self.on_business_done))
 
     def run(self):
-        super().run(self.map, self.prepare)
+        thread = Thread(target=self.consume_business)
+        thread.start()
+        self.refiner.run(
+            cursor=MapperScatter(
+                map_fn=self.map,
+                start_fn=self.prepare,
+                pipes_out=self.pipes_out,
+            )
+        )
+        thread.join()
 
     def prepare(self):
-        self.business_city = self.business_cities.pop()
+        self.business_done.wait()
+        self.business_done.clear()
+        self.business_taken.set()
 
     def map(self, reviews):
         return [

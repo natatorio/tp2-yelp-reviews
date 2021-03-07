@@ -1,13 +1,12 @@
-from mapper import FunnyMapper, Pop
+from mapper import FunnyMapper
 from health_server import HealthServer
 import pipe
-from consumers import Joiner
 
 
 def main():
     healthServer = HealthServer()
     mapper = FunnyMapper(
-        pipe.map_funny(), pipe.consume_funny(), Pop(pipe.map_funny_data())
+        pipe.map_funny(), pipe.consume_funny(), pipe.sub_map_funny_data()
     )
     mapper.run()
     healthServer.stop()
