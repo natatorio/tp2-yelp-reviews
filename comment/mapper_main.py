@@ -5,7 +5,7 @@ import pipe
 
 def main():
     healthServer = HealthServer()
-    mapper = CommentMapper(pipe.map_comment(), pipe.consume_comment())
+    mapper = CommentMapper(pipe.map_comment(), [pipe.consume_comment()])
     mapper.run()
     healthServer.stop()
 

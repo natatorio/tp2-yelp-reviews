@@ -5,7 +5,7 @@ import pipe
 
 def main():
     healthServer = HealthServer()
-    mapper = Stars5Mapper(pipe.map_stars5(), pipe.consume_star5())
+    mapper = Stars5Mapper(pipe.map_stars5(), [pipe.consume_star5()])
     mapper.run()
     healthServer.stop()
 

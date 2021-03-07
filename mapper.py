@@ -1,7 +1,8 @@
 import datetime
 import hashlib
 import os
-from pipe import Pipe
+from typing import List
+from pipe import Pipe, Send
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -10,33 +11,28 @@ logger.setLevel(logging.INFO)
 
 
 class Mapper:
-    def __init__(self, pipe_in: Pipe, pipe_out: Pipe):
+    def __init__(self, pipe_in: Pipe, pipes_out: List[Send]):
         self.pipe_in = pipe_in
-        self.pipe_out = pipe_out
+        self.pipes_out = pipes_out
         self.replicas = int(os.environ.get("N_REPLICAS", 1))
 
-    def prepare(self):
-        return
-
-    def map(self, data):
-        return None
-
-    def run(self):
-        logger.info("start mapping: %s -> %s", self.pipe_in, self.pipe_out)
+    def run(self, map_fn, prepare=lambda: None):
+        logger.info("start mapping: %s -> %s", self.pipe_in, self.pipes_out)
         try:
-            self.prepare()
+            prepare()
             for payload, ack in self.pipe_in.recv():
                 data = payload["data"]
                 if data:
-                    mapped_data = self.map(data)
-                    self.pipe_out.send({**payload, "data": mapped_data})
+                    mapped_data = map_fn(data)
+                    for pipe_out in self.pipes_out:
+                        pipe_out.send({**payload, "data": mapped_data})
                 else:
                     count_down = payload.pop("count_down", self.replicas)
                     if count_down <= 1:
                         logger.info(
                             "count_down done: %s -> %s",
                             self.pipe_in,
-                            self.pipe_out,
+                            self.pipes_out,
                         )
                         self.pipe_in.send({**payload, "data": None})
                     else:
@@ -44,20 +40,21 @@ class Mapper:
                             "count_down %s: %s -> %s",
                             count_down,
                             self.pipe_in,
-                            self.pipe_out,
+                            self.pipes_out,
                         )
-                        self.pipe_out.send(
-                            {
-                                **payload,
-                                "data": None,
-                                "count_down": count_down - 1,
-                            }
-                        )
-                        self.prepare()
+                        for pipe_out in self.pipes_out:
+                            pipe_out.send(
+                                {
+                                    **payload,
+                                    "data": None,
+                                    "count_down": count_down - 1,
+                                }
+                            )
+                        prepare()
                 ack()
         finally:
             self.pipe_in.cancel()
-        logger.info("done mapping: %s -> %s", self.pipe_in, self.pipe_out)
+        logger.info("done mapping: %s -> %s", self.pipe_in, self.pipes_out)
 
 
 class Pop:
@@ -71,14 +68,13 @@ class Pop:
         try:
             for payload, ack in self.pipe_in.recv():
                 if payload["data"] is None:
-                    print("empty")
                     ack()
                     continue
                 else:
                     data_payload = payload
                     count_down = payload.pop("count_down", self.replicas)
                     if count_down > 1:
-                        print("count_down:", count_down)
+                        logger.info("count_down: %s", count_down)
                         self.pipe_in.send(
                             {
                                 **payload,
@@ -89,15 +85,17 @@ class Pop:
                     break
         finally:
             self.pipe_in.cancel()
-        print(len(data_payload["data"]))
         logger.info("end waiting item: %s", self.pipe_in)
         return data_payload["data"]
 
 
 class FunnyMapper(Mapper):
     def __init__(self, pipe_in: Pipe, pipe_out: Pipe, business_cities: Pop):
-        super().__init__(pipe_in, pipe_out)
+        super().__init__(pipe_in, [pipe_out])
         self.business_cities = business_cities
+
+    def run(self):
+        super().run(self.map, self.prepare)
 
     def prepare(self):
         self.business_city = self.business_cities.pop()
@@ -111,6 +109,9 @@ class FunnyMapper(Mapper):
 
 
 class CommentMapper(Mapper):
+    def run(self):
+        super().run(self.map)
+
     def map(self, reviews):
         return [
             {
@@ -122,6 +123,9 @@ class CommentMapper(Mapper):
 
 
 class Stars5Mapper(Mapper):
+    def run(self):
+        super().run(self.map, lambda: None)
+
     def map(self, reviews):
         return [
             {"stars": r["stars"], "user_id": r["user_id"]}
@@ -131,6 +135,9 @@ class Stars5Mapper(Mapper):
 
 
 class HistogramMapper(Mapper):
+    def run(self):
+        super().run(self.map, lambda: None)
+
     def map(self, dates):
         return [
             {

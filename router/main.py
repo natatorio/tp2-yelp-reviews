@@ -1,166 +1,69 @@
-import json
-import os
-import pika
+from threading import Thread
 from health_server import HealthServer
+import pipe
+from mapper import Mapper
 
 # https://stackoverflow.com/questions/24510310/consume-multiple-queues-in-python-pika
 class Router:
     def __init__(self):
-        self.connection = pika.BlockingConnection(
-            parameters=pika.URLParameters(url=os.environ["AMQP_URL"])
-        )
-        self.channel = self.connection.channel()
-        self.channel.exchange_declare(exchange="data", exchange_type="direct")
+        self.business_mapper = Mapper(pipe.data_business(), [pipe.consume_business()])
 
-        self.channel.exchange_declare(exchange="reviews", exchange_type="direct")
-        self.business_queue = self.channel.queue_declare(
-            queue="business.QUEUE", durable=True
-        ).method.queue
-        self.channel.queue_bind(
-            exchange="data",
-            queue=self.business_queue,
-            routing_key="business",
-        )
-        self.reviews_queue = self.channel.queue_declare(
-            queue="review.QUEUE", durable=True
-        ).method.queue
-        self.channel.queue_bind(
-            exchange="data",
-            queue=self.reviews_queue,
-            routing_key="review",
-        )
-
-        self.channel.exchange_declare(exchange="map", exchange_type="direct")
-
-        self.replicas = int(os.environ.get("N_REPLICAS", "1"))
-
-    def consume_business(self):
-        for method, props, body in self.channel.consume(
-            self.business_queue, auto_ack=False
-        ):
-            payload = json.loads(body.decode("utf-8"))
-            business = payload["data"]
-            if business:
-                self.route_business(business, props, payload)
-                self.channel.basic_ack(method.delivery_tag)
-            else:
-                count_down = payload.get("count_down", self.replicas)
-                if count_down > 1:
-                    payload["count_down"] = count_down - 1
-                    self.channel.basic_publish(
-                        exchange="data",
-                        routing_key="business",
-                        properties=props,
-                        body=json.dumps(payload),
-                    )
-                else:
-                    self.route_business(None, props, payload)
-                self.channel.basic_ack(method.delivery_tag)
-                break
-        self.channel.cancel()
-
-    def consume_reviews(self):
-        for method, props, body in self.channel.consume(
-            self.reviews_queue, auto_ack=False
-        ):
-            payload = json.loads(body.decode("utf-8"))
-            reviews = payload["data"]
-            if reviews:
-                self.route_review(reviews, props, payload)
-                self.channel.basic_ack(method.delivery_tag)
-            else:
-                count_down = payload.get("count_down", self.replicas)
-                if count_down > 1:
-                    payload["count_down"] = count_down - 1
-                    self.channel.basic_publish(
-                        exchange="data",
-                        routing_key="review",
-                        properties=props,
-                        body=json.dumps(payload),
-                    )
-                else:
-                    self.route_review(None, props, payload)
-                self.channel.basic_ack(method.delivery_tag)
-                break
-        self.channel.cancel()
-
-    def route_business(self, business, props, context):
-        business_cities = None
-        if business:
-            business_cities = [
-                {"city": b["city"], "business_id": b["business_id"]} for b in business
-            ]
-        self.channel.basic_publish(
-            exchange="reviews",
-            routing_key="business",
-            properties=props,
-            body=json.dumps({**context, "data": business_cities}),
-        )
-
-    def route_review(self, reviews, props, context):
-        funny = None
-        comment = None
-        users = None
-        stars5 = None
-        histogram = None
-        if reviews:
-            funny = [
+        def funny(reviews):
+            return [
                 {
                     "funny": r["funny"],
                     "business_id": r["business_id"],
                 }
                 for r in reviews
             ]
-            comment = [{"text": r["text"], "user_id": r["user_id"]} for r in reviews]
-            users = [{"user_id": r["user_id"]} for r in reviews]
-            stars5 = [{"stars": r["stars"], "user_id": r["user_id"]} for r in reviews]
-            histogram = [{"date": r["date"]} for r in reviews]
-        self.channel.basic_publish(
-            exchange="reviews",
-            routing_key="users",
-            properties=props,
-            body=json.dumps({**context, "data": users}),
-        )
-        self.channel.basic_publish(
-            exchange="map",
-            routing_key="comment",
-            properties=props,
-            body=json.dumps({**context, "data": comment}),
-        )
-        self.channel.basic_publish(
-            exchange="map",
-            routing_key="funny",
-            properties=props,
-            body=json.dumps({**context, "data": funny}),
-        )
-        self.channel.basic_publish(
-            exchange="map",
-            routing_key="stars5",
-            properties=props,
-            body=json.dumps({**context, "data": stars5}),
-        )
-        self.channel.basic_publish(
-            exchange="map",
-            routing_key="histogram",
-            properties=props,
-            body=json.dumps({**context, "data": histogram}),
+
+        def comment(reviews):
+            return [{"text": r["text"], "user_id": r["user_id"]} for r in reviews]
+
+        def users(reviews):
+            return [{"user_id": r["user_id"]} for r in reviews]
+
+        def stars5(reviews):
+            return [{"stars": r["stars"], "user_id": r["user_id"]} for r in reviews]
+
+        def histogram(reviews):
+            return [{"date": r["date"]} for r in reviews]
+
+        self.reviews_scatter = Mapper(
+            pipe.data_review(),
+            [
+                pipe.Formatted(pipe.consume_users(), users),
+                pipe.Formatted(pipe.map_comment(), comment),
+                pipe.Formatted(pipe.map_funny(), funny),
+                pipe.Formatted(pipe.map_histogram(), histogram),
+                pipe.Formatted(pipe.map_stars5(), stars5),
+            ],
         )
 
+    def consume_business(self):
+        def route_business(business):
+            return [
+                {"city": b["city"], "business_id": b["business_id"]} for b in business
+            ]
+
+        self.business_mapper.run(map_fn=route_business)
+
+    def consume_reviews(self):
+        self.reviews_scatter.run(lambda x: x)
+
     def run(self):
-        try:
-            print("consume_business")
-            self.consume_business()
-            print("consume_reviews")
-            self.consume_reviews()
-            print("done")
-        finally:
-            self.connection.close()
+        print("consume_business")
+        thread = Thread(target=self.consume_business)
+        thread.start()
+        print("consume_reviews")
+        self.consume_reviews()
+        thread.join()
+        print("done")
 
 
 def main():
     healthServer = HealthServer()
-    while True:
-        Router().run()
+    Router().run()
     healthServer.stop()
 
 
