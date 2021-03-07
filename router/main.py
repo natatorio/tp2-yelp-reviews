@@ -3,14 +3,6 @@ import os
 import pika
 from health_server import HealthServer
 
-
-def select_keys(m, keys):
-    r = {}
-    for key in keys:
-        r[key] = m[key]
-    return r
-
-
 # https://stackoverflow.com/questions/24510310/consume-multiple-queues-in-python-pika
 class Router:
     def __init__(self):

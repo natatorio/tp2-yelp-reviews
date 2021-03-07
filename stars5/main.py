@@ -11,15 +11,18 @@ def main():
         join_out=pipe.annon(),
     )
 
-    def join(left, right):
-        return {k: v for (k, v) in right.items() if right[k] == left.get(k, 0)}
+    def join(right, left):
+        return (
+            "stars5",
+            {k: v for (k, v) in right.items() if right[k] == left.get(k, 0)},
+        )
 
-    def count(acc, data):
+    def count(acc, data, _):
         for elem in data:
             acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
         return acc
 
-    def nothing(acc, data):
+    def nothing(acc, data, _):
         return data
 
     joiner.run(count, nothing, join)

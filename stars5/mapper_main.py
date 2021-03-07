@@ -6,8 +6,7 @@ import pipe
 def main():
     healthServer = HealthServer()
     mapper = Stars5Mapper(pipe.map_stars5(), pipe.consume_star5())
-    while True:
-        mapper.run()
+    mapper.run()
     healthServer.stop()
 
 

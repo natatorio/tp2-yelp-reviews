@@ -6,8 +6,7 @@ import pipe
 def main():
     healthServer = HealthServer()
     mapper = HistogramMapper(pipe.map_histogram(), pipe.consume_histogram())
-    while True:
-        mapper.run()
+    mapper.run()
     healthServer.stop()
 
 

@@ -53,7 +53,7 @@ class Mapper:
                                 "count_down": count_down - 1,
                             }
                         )
-                    break
+                        self.prepare()
                 ack()
         finally:
             self.pipe_in.cancel()
@@ -67,25 +67,31 @@ class Pop:
 
     def pop(self):
         logger.info("start waiting item: %s", self.pipe_in)
-        data = None
+        data_payload = None
         try:
             for payload, ack in self.pipe_in.recv():
-                data = payload["data"]
-                count_down = payload.pop("count_down", self.replicas)
-                if count_down > 1:
-                    print("count_down:", count_down)
-                    self.pipe_in.send(
-                        {
-                            **payload,
-                            "count_down": count_down - 1,
-                        }
-                    )
-                ack()
-                break
+                if payload["data"] is None:
+                    print("empty")
+                    ack()
+                    continue
+                else:
+                    data_payload = payload
+                    count_down = payload.pop("count_down", self.replicas)
+                    if count_down > 1:
+                        print("count_down:", count_down)
+                        self.pipe_in.send(
+                            {
+                                **payload,
+                                "count_down": count_down - 1,
+                            }
+                        )
+                    ack()
+                    break
         finally:
             self.pipe_in.cancel()
+        print(len(data_payload["data"]))
         logger.info("end waiting item: %s", self.pipe_in)
-        return data
+        return data_payload["data"]
 
 
 class FunnyMapper(Mapper):

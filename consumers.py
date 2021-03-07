@@ -1,10 +1,9 @@
-import json
 import os
 from threading import RLock, Thread, Barrier
 from typing import List
 
 import logging
-from pipe import Pipe, Recv, Send
+from pipe import Pipe, Send
 
 logger = logging.getLogger("consumers")
 logger.setLevel(logging.INFO)
@@ -25,10 +24,9 @@ class Consumer:
                 if data:
                     acc = aggregate(acc, data)
                 else:
-                    done(payload, acc)
                     count_down = payload.pop("count_down", self.replicas)
                     if count_down > 1:
-                        print("count_down", count_down)
+                        logger.info("count_down", count_down)
                         self.pipe_in.send(
                             {
                                 **payload,
@@ -36,9 +34,11 @@ class Consumer:
                                 "count_down": count_down - 1,
                             }
                         )
-                    logger.info(
-                        "batch done: %s %s", self.pipe_in, payload["session_id"]
-                    )
+                    else:
+                        done(payload, acc)
+                        logger.info(
+                            "batch done: %s %s", self.pipe_in, payload["session_id"]
+                        )
                     acc = {}
         finally:
             self.pipe_in.cancel()
@@ -61,6 +61,12 @@ class Scatter:
                     "data": acc,
                 }
             )
+            pipe_out.send(
+                {
+                    **end_mark,
+                    "data": None,
+                }
+            )
 
     def close(self):
         self.consumer.close()
@@ -69,21 +75,6 @@ class Scatter:
 
     def run(self, aggregate):
         self.consumer.run(done=self.done, aggregate=aggregate)
-
-    # def reply(self, response):
-    #     print("Reply", self.reply_to, response)
-    #     self.pipe_in.sendbasic_publish(
-    #         exchange="",
-    #         routing_key=self.reply_to,
-    #         body=json.dumps(response),
-    #     )
-
-    # def forward(self, exchange, send_to, response):
-    #     self.channel.basic_publish(
-    #         exchange=exchange,
-    #         routing_key=send_to + ".DATA",
-    #         body=json.dumps({"data": response}),
-    #     )
 
 
 class CounterBy(Scatter):
@@ -112,21 +103,35 @@ class Joiner:
 
     def left_consume(self, aggregate, join):
         def done(context, acc):
+            logger.info("waiting right")
             self.left = acc
             self.barrier.wait()
             self.join_out.send({**context, "data": join(self.left, self.right)})
+            logger.info("done")
 
-        self.left_consumer.run(aggregate, done)
+        def aggregate_wrapper(acc, left):
+            acc = aggregate(acc, left, self.right)
+            self.left = acc
+            return acc
+
+        self.left_consumer.run(aggregate_wrapper, done)
 
     def right_consume(self, aggregate, join):
         def done(context, acc):
+            logger.info("waiting left")
             self.right = acc
             self.barrier.wait()
 
-        self.right_consumer.run(aggregate, done)
+        def aggregate_wrapper(acc, right):
+            acc = aggregate(acc, self.left, right)
+            self.right = acc
+            return acc
+
+        self.right_consumer.run(aggregate_wrapper, done)
 
     def run(self, left, right, join):
         thread = Thread(target=lambda: self.left_consume(left, join))
+        thread.start()
         self.right_consume(right, join)
         logger.info("waiting left to shutdown")
         thread.join()

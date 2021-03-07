@@ -5,8 +5,8 @@ import pika
 import os
 
 logging.basicConfig(level=logging.ERROR)
-LOG = logging.getLogger("pipe")
-LOG.setLevel(logging.INFO)
+logger = logging.getLogger("pipe")
+logger.setLevel(logging.INFO)
 RETRIES = 3
 
 
@@ -31,7 +31,7 @@ class Connection:
                     self.connection = open_connection()
                 return self.connection.channel()
             except Exception as e:
-                LOG.exception(f"while trying to get channel {str(e)}")
+                logger.exception(f"while trying to get channel {str(e)}")
             i += 1
         raise Exception("Couldn't instantiate channel")
 
@@ -40,11 +40,39 @@ CONNECTION = Connection()
 
 
 class Send:
+    def __init__(self, exchange, routing_key) -> None:
+        self.connection = None
+        self.channel = None
+        self.routing_key = routing_key
+        self.exchange = exchange
+
     def send(self, data):
-        return
+        self.send_to(self.exchange, self.routing_key, data)
+
+    def send_to(self, exchange, routing_key, data):
+        if self.connection is None:
+            self.connection = Connection()
+        if self.channel is None:
+            self.channel = self.connection.channel()
+        i = 0
+        while i < RETRIES:
+            try:
+                return self.channel.basic_publish(
+                    exchange=exchange,
+                    routing_key=routing_key,
+                    body=json.dumps(data),
+                )
+            except Exception as e:
+                logger.exception(f"retry connection {str(e)}")
+                self.channel = self.connection.channel()
+            i += 1
+        raise Exception("Couldn't instantiate channel")
 
     def close(self):
-        return
+        if self.channel is not None:
+            self.channel.close()
+        if self.connection is not None:
+            self.connection.close()
 
 
 class Formatted:
@@ -52,8 +80,11 @@ class Formatted:
         self.sender = sender
         self.formatter = formatter
 
-    def send(self, data):
-        self.sender.send(self.formatter(data))
+    def send(self, payload):
+        data = payload["data"]
+        if data is not None:
+            data = self.formatter(data)
+        self.sender.send({**payload, "data": data})
 
     def close(self):
         self.sender.close()
@@ -69,35 +100,40 @@ class Recv:
 
 class Pipe(Send, Recv):
     def __init__(self, exchange, routing_key, queue):
-        self.connection = CONNECTION
+        logger.info("pipe %s %s %s", exchange, routing_key, queue)
+        self.connection = None
+        self.channel = None
 
-        self.channel = self.connection.channel()
+        channel = CONNECTION.channel()
         self.exchange = exchange
         if exchange:
-            self.channel.exchange_declare(
-                exchange=self.exchange, exchange_type="direct"
-            )
+            channel.exchange_declare(exchange=self.exchange, exchange_type="direct")
 
-        self.queue = queue
-        queue_response = self.channel.queue_declare(queue=queue, durable=True)
+        queue_response = channel.queue_declare(queue=queue, durable=True)
+        self.queue = queue_response.method.queue
         if not queue:
-            self.queue = queue_response.method.queue
+            print("ANNON QUEUE")
 
         self.routing_key = self.queue
         if routing_key:
             self.routing_key = routing_key
 
         if self.exchange and self.queue:
-            self.channel.queue_bind(
+            channel.queue_bind(
                 exchange=self.exchange,
                 queue=self.queue,
                 routing_key=self.routing_key,
             )
+        channel.close()
 
     def __str__(self) -> str:
         return f"Pipe[{self.exchange},{self.routing_key},{self.queue}]"
 
     def recv(self, auto_ack=False):
+        if self.connection is None:
+            self.connection = Connection()
+        if self.channel is None:
+            self.channel = self.connection.channel()
         i = 0
         while i < RETRIES:
             try:
@@ -110,7 +146,7 @@ class Pipe(Send, Recv):
                     )
                 return
             except Exception as e:
-                LOG.exception(f"retry connection {str(e)}")
+                logger.exception(f"retry connection {str(e)}")
                 self.channel = self.connection.channel()
             i += 1
         raise Exception("Couldn't instantiate channel")
@@ -119,27 +155,10 @@ class Pipe(Send, Recv):
         self.channel.cancel()
 
     def close(self):
-        self.channel.close()
-        self.connection.close()
-
-    def send(self, data):
-        routing_key_override = self.routing_key
-        if data.get("reply"):
-            routing_key_override = data["reply"]
-
-        i = 0
-        while i < RETRIES:
-            try:
-                return self.channel.basic_publish(
-                    exchange=self.exchange,
-                    routing_key=routing_key_override,
-                    body=json.dumps(data),
-                )
-            except Exception as e:
-                LOG.exception(f"retry connection {str(e)}")
-                self.channel = self.connection.channel()
-            i += 1
-        raise Exception("Couldn't instantiate channel")
+        if self.channel is not None:
+            self.channel.close()
+        if self.connection is not None:
+            self.connection.close()
 
     def __enter__(self):
         return self
@@ -212,18 +231,4 @@ def data_review():
 
 
 def annon():
-    return Pipe(exchange="", routing_key="", queue="")
-
-
-# data_business
-#     consume_business
-#         map_funny_data
-
-# data_reviews
-#    consume_users
-#    map_comment
-#    map_funny
-#     consume_funny
-#    map_histogram
-#    map_stars5 x consume_star5_data
-#     consume_star5
+    return Pipe(exchange="", routing_key="reports", queue="reports")

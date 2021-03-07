@@ -45,64 +45,67 @@ def publish_file(
 
 
 def main():
-    reports_queue = "reports"
-    with pipe.Pipe(
-        exchange="", routing_key=reports_queue, queue=reports_queue
-    ) as reports, pipe.data_business() as business, pipe.data_review() as reviews:
+    reports = pipe.annon()
+    business = pipe.data_business()
+    reviews = pipe.data_review()
 
-        session_id = 1
+    session_id = 1
 
-        logger.info("start session: %s", session_id)
-        logger.info("loading business")
-        items = -1
-        try:
-            items = publish_file(
-                file_path=BUSINESS_DATASET_FILEPATH,
-                chunk_size=CHUNK_SIZE,
-                max_size=MAX_BUSINESS,
-                session_id=session_id,
-                pipe_out=business,
-            )
-        finally:
-            business.send(
-                {
-                    "id": items + 1,
-                    "data": None,
-                    "session_id": session_id,
-                }
-            )
+    logger.info("start session: %s", session_id)
+    logger.info("loading business")
+    items = -1
+    try:
+        items = publish_file(
+            file_path=BUSINESS_DATASET_FILEPATH,
+            chunk_size=CHUNK_SIZE,
+            max_size=MAX_BUSINESS,
+            session_id=session_id,
+            pipe_out=business,
+        )
+    finally:
+        business.send(
+            {
+                "id": items + 1,
+                "data": None,
+                "session_id": session_id,
+            }
+        )
 
-        logger.info("loading reviews")
-        items = -1
-        try:
-            items = publish_file(
-                file_path=REVIEWS_DATASET_FILEPATH,
-                chunk_size=CHUNK_SIZE,
-                max_size=MAX_REVIEWS,
-                session_id=session_id,
-                pipe_out=reviews,
-            )
-        finally:
-            reviews.send(
-                {
-                    "id": items + 1,
-                    "data": None,
-                    "reply": reports_queue,
-                    "session_id": session_id,
-                }
-            )
+    logger.info("loading reviews")
+    items = -1
+    try:
+        items = publish_file(
+            file_path=REVIEWS_DATASET_FILEPATH,
+            chunk_size=CHUNK_SIZE,
+            max_size=MAX_REVIEWS,
+            session_id=session_id,
+            pipe_out=reviews,
+        )
+    finally:
+        reviews.send(
+            {
+                "id": items + 1,
+                "data": None,
+                "reply": "reports",
+                "session_id": session_id,
+            }
+        )
 
-        logger.info("waiting report")
-        report = {}
-        for payload, _ in reports.recv(auto_ack=True):
+    logger.info("waiting report")
+    report = {}
+    for payload, _ in reports.recv(auto_ack=True):
+        if payload["data"]:
             key, val = payload["data"]
             report[key] = val
-            logger.info("%s = ", key)
-            pprint.pprint(val)
-            if len(report) >= 5:
-                break
-
-        logger.info("end session %s", session_id)
+            logger.info("%s = %s", key, len(val))
+            # pprint.pprint(val)
+        if len(report) >= 5:
+            break
+    logger.info("%s", report["stars5"])
+    logger.info("end session %s", session_id)
+    reports.close()
+    business.close()
+    reviews.close()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from mapper import FunnyMapper, Pop
 from health_server import HealthServer
 import pipe
+from consumers import Joiner
 
 
 def main():
@@ -8,8 +9,7 @@ def main():
     mapper = FunnyMapper(
         pipe.map_funny(), pipe.consume_funny(), Pop(pipe.map_funny_data())
     )
-    while True:
-        mapper.run()
+    mapper.run()
     healthServer.stop()
 
 
