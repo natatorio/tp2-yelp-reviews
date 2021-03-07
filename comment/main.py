@@ -11,8 +11,8 @@ def main():
         join_out=pipe.annon(),
     )
 
-    def aggregate(key_count, data, _):
-        for elem in data:
+    def aggregate(key_count, left_data, right_acc):
+        for elem in left_data:
             commentCount = key_count.get(elem["user_id"])
             if commentCount and commentCount[0] == elem["text"]:
                 key_count[elem["user_id"]] = (commentCount[0], commentCount[1] + 1)
@@ -20,8 +20,8 @@ def main():
                 key_count[elem["user_id"]] = (elem["text"], 1)
         return key_count
 
-    def nothing(acc, data, _):
-        return data
+    def nothing(acc, left_acc, right_data):
+        return right_data
 
     def join(left, right):
         return (

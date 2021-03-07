@@ -14,6 +14,6 @@ set -euo pipefail
   #     - ../data:/data:rw
   #   depends_on:
   #     - rabbitmq
-
+docker build . -t reviews
 docker run -it --network="tp3_reviews_network" -v "$(cd .. && pwd)/data:/data" reviews 
 

@@ -97,11 +97,9 @@ def main():
         if payload["data"]:
             key, val = payload["data"]
             report[key] = val
-            logger.info("%s = %s", key, len(val))
-            # pprint.pprint(val)
+            logger.info("%s = %s", key, pprint.pformat(val))
         if len(report) >= 5:
             break
-    logger.info("%s", report["stars5"])
     logger.info("end session %s", session_id)
     reports.close()
     business.close()

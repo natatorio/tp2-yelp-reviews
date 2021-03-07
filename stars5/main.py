@@ -11,19 +11,19 @@ def main():
         join_out=pipe.annon(),
     )
 
-    def join(right, left):
+    def join(left, right):
         return (
             "stars5",
-            {k: v for (k, v) in right.items() if right[k] == left.get(k, 0)},
+            {k: v for (k, v) in left.items() if v == right.get(k, 0)},
         )
 
-    def count(acc, data, _):
-        for elem in data:
+    def count(acc, left_data, right_data):
+        for elem in left_data:
             acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
         return acc
 
-    def nothing(acc, data, _):
-        return data
+    def nothing(acc, _, right_data):
+        return right_data
 
     joiner.run(count, nothing, join)
     joiner.close()
