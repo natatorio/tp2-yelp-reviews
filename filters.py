@@ -1,7 +1,7 @@
 import os
 
 import logging
-from threading import Barrier
+from threading import Barrier, Event
 from typing import List
 from pipe import Pipe, Send
 
@@ -134,60 +134,68 @@ class Join:
         self.right_fn = right_fn
         self.join_fn = join_fn
         self.pipes_out = pipes_out
+        self.send_done = Event()
 
     class Left(EndOnce):
         def __init__(self, parent) -> None:
             self.parent = parent
 
         def start_once(self) -> object:
-            self.parent.left_data = {}
-            return self.parent.left_data
+            self.parent.left_acc = {}
+            return self.parent.left_acc
 
         def restart(self) -> object:
-            self.parent.left_data = {}
-            return self.parent.left_data
+            self.parent.left_acc = {}
+            return self.parent.left_acc
 
         def step(self, acc, left_data, context) -> object:
-            self.parent.left_data = self.parent.left_fn(
+            self.parent.left_acc = self.parent.left_fn(
                 acc,
                 left_data,
-                self.parent.right_data,
+                self.parent.right_acc,
             )
-            return self.parent.left_data
+            return self.parent.left_acc
 
         def end_once(self, left_data, context):
+            print("left", len(self.parent.left_acc), len(self.parent.right_acc))
             self.parent.barrier.wait()
-            acc = self.parent.join_fn(self.parent.left_data, self.parent.right_data)
+            acc = self.parent.join_fn(self.parent.left_acc, self.parent.right_acc)
+            self.parent.send_done.set()
+            print(acc)
             send_to_all(self.parent.pipes_out, {**context, "data": acc})
             send_to_all(self.parent.pipes_out, {**context, "data": None})
+            print("end left")
 
     class Right(EndOnce):
         def __init__(self, parent) -> None:
             self.parent = parent
 
         def start_once(self) -> object:
-            self.parent.right_data = {}
-            return self.parent.right_data
+            self.parent.right_acc = {}
+            return self.parent.right_acc
 
         def restart(self) -> object:
-            self.parent.right_data = {}
-            return self.parent.right_data
+            self.parent.right_acc = {}
+            return self.parent.right_acc
 
         def step(self, acc, right_data, context) -> object:
-            self.parent.right_data = self.parent.right_fn(
+            self.parent.right_acc = self.parent.right_fn(
                 acc,
-                self.parent.right_data,
+                self.parent.left_acc,
                 right_data,
             )
-            return self.parent.right_data
+            return self.parent.right_acc
 
         def end_once(self, right_data, context):
             self.parent.barrier.wait()
+            self.parent.send_done.wait()
+            self.parent.send_done.clear()
+            print("end right")
 
-    def left(self, step):
+    def left(self):
         return Join.Left(self)
 
-    def right(self, step):
+    def right(self):
         return Join.Right(self)
 
 

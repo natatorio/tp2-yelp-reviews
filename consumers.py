@@ -1,4 +1,4 @@
-from filters import Filter, MapperScatter, ReducerScatter
+from filters import Filter, Join, MapperScatter, ReducerScatter
 import os
 from threading import RLock, Thread, Barrier
 from typing import List
@@ -84,50 +84,22 @@ class CounterBy(Scatter):
 
 class Joiner:
     def __init__(self, left_in, right_in, join_out) -> None:
-        self.left_consumer = Consumer(left_in)
-        self.right_consumer = Consumer(right_in)
+        self.left_consumer = Filter(left_in)
+        self.right_consumer = Filter(right_in)
         self.join_out = join_out
-        self.barrier = Barrier(2)
-        self.lock = RLock()
-        self.right = None
-        self.left = None
-
-    def left_consume(self, aggregate, join):
-        def done(context, acc):
-            logger.info("waiting right")
-            self.left = acc
-            self.barrier.wait()
-            self.join_out.send({**context, "data": join(self.left, self.right)})
-            logger.info("done")
-
-        def aggregate_wrapper(acc, left):
-            acc = aggregate(acc, left, self.right)
-            self.left = acc
-            return acc
-
-        self.left_consumer.run(aggregate_wrapper, done)
-
-    def right_consume(self, aggregate, join):
-        def done(context, acc):
-            logger.info("waiting left")
-            self.right = acc
-            self.barrier.wait()
-
-        def aggregate_wrapper(acc, right):
-            acc = aggregate(acc, self.left, right)
-            self.right = acc
-            return acc
-
-        self.right_consumer.run(aggregate_wrapper, done)
 
     def run(self, left, right, join):
-        thread = Thread(target=lambda: self.left_consume(left, join))
+        j = Join(
+            left_fn=left,
+            right_fn=right,
+            join_fn=join,
+            pipes_out=[self.join_out],
+        )
+        thread = Thread(target=lambda: self.left_consumer.run(cursor=j.left()))
         thread.start()
-        self.right_consume(right, join)
+        self.right_consumer.run(j.right())
         logger.info("waiting left to shutdown")
         thread.join()
 
     def close(self):
-        self.left_consume.close()
-        self.right_consumer.close()
         self.join_out.close()
