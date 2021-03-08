@@ -2,7 +2,7 @@ import os
 
 import logging
 from threading import Barrier, Event
-from typing import List
+from typing import Dict, List
 from pipe import Pipe, Send
 
 logger = logging.getLogger("filter")
@@ -188,35 +188,60 @@ class Notify(Cursor):
         self.observer(acc)
 
 
-class Persistent:
-    def __init__(self, cursor, db, name) -> None:
+from kevasto import Client
+
+
+class Persistent(Cursor):
+    def __init__(self, cursor, name) -> None:
         self.cursor = cursor
-        self.db = db
+        self.db = Client()
         self.name = name
 
+    def setup(self, caller):
+        return super().setup(caller)
+
+    def quit(self, acc, context) -> bool:
+        return super().quit(acc, context)
+
     def start(self) -> object:
-        state = self.db.state.get(self.name, {})
-        acc = state["acc"]
-        self.seq_num = state.get("start_seq")
+        state = self.db.get(self.name, "state")
+        if state is None:
+            state = {}
+        acc = state.get("acc", {})
+        self.seq_num = state.get("seq_num", 0)
         if self.seq_num:
-            items = self.db.items.get(self.name, start=self.seq_num)
+            context = state.get("context", {})
+            items = self.db.log_fetch(self.name, self.seq_num)
             for item in items:
-                acc = self.cursor.step(state["acc"], item, state["context"])
+                acc = self.cursor.step(acc, item, context)
                 self.seq_num += 1
-        else:
-            self.seq_num = 0
         return acc
 
     def step(self, acc, data, context) -> object:
-        self.db.items.append(self.seq_num, data)
+        self.db.log_append(self.name, self.seq_num, data)
         acc = self.cursor.step(acc, data, context)
         self.seq_num += 1
         if self.seq_num % 100 == 0:
-            self.db.state.save(
-                {"acc": acc, "context": context, "last_seq": self.seq_num}
+            self.db.put(
+                self.name,
+                "state",
+                {
+                    "acc": acc,
+                    "context": context,
+                    "last_seq": self.seq_num,
+                },
             )
-            self.db.items.drop(self.seq_num)
+            self.db.log_drop(self.name, self.seq_num)
         return acc
 
     def end(self, acc, context):
-        self.db.state.save({"acc": acc, "context": context, "last_seq": self.seq_num})
+        self.db.put(
+            self.name,
+            "state",
+            {
+                "acc": acc,
+                "context": context,
+                "last_seq": self.seq_num,
+            },
+        )
+        self.db.log_drop(self.name, -1)
