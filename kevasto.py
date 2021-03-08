@@ -8,10 +8,47 @@ import docker
 from flask import Flask, request
 
 from raft import Leader, NopVM, Raft
+import logging
+
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger("kevasto")
+logger.setLevel(logging.INFO)
+
+
+class Log:
+    def __init__(self, data):
+        self.data = data
+        if not data.get("entries"):
+            self.data["entries"] = []
+            self.data["base"] = 0
+
+    def translate(self, i):
+        virtual_size = self.data["base"] + len(self.data["entries"])
+        if i > virtual_size:
+            raise Exception(f"Illegal index {i} > {virtual_size}")
+        index = i - self.data["base"]
+        if index < 0:
+            raise Exception(f"Illegal index {i} < {self.data['base']}")
+        return index
+
+    def list(self, start):
+        return self.data["entries"][self.translate(start) :]
+
+    def drop(self, i):
+        if i is None:
+            self.data["base"] = 0
+            self.data["entries"] = []
+        else:
+            index = self.translate(i)
+            self.data["base"] = i
+            self.data["entries"] = self.data["entries"][index:]
+
+    def concat(self, values):
+        self.data["entries"] += values
 
 
 class KeyValueVM(NopVM):
-    data = {}
+    data = {"keyvalue": {}, "log": {}}
 
     def reset(self, context, snapshot):
         self.data = snapshot
@@ -23,35 +60,36 @@ class KeyValueVM(NopVM):
         for command in commands:
             command = command["data"]
             bucket_key = command["bucket"]
-            bucket = self.data.get(bucket_key)
+            bucket = self.data[command["store"]].get(bucket_key)
             if bucket is None:
                 bucket = {}
-                self.data[bucket_key] = bucket
+                self.data[command["store"]][bucket_key] = bucket
 
-            op = command.get("op", "put")
-            if op == "+":
-                bucket[command["key"]] = command["val"]
-            elif op == "-":
-                bucket.pop(command["key"], None)
-            elif op == "drop":
-                bucket["log"] = bucket.get("log", [])[: command["start"]]
-            elif op == "append":
-                bucket["log"] = (
-                    bucket.get("log", [])[: command["start"]] + command["val"]
-                )
-
+            op = command["op"]
+            if command["store"] == "log":
+                log = Log(bucket)
+                if op == "drop":
+                    log.drop(command["start"])
+                elif op == "append":
+                    log.concat(command["val"])
+            else:
+                if op == "+":
+                    bucket[command["key"]] = command["val"]
+                elif op == "-":
+                    bucket.pop(command["key"], None)
         return None
 
     def results(self, query):
-        bucket = self.data.get(query["bucket"])
+        bucket = self.data[query["store"]].get(query["bucket"])
         if bucket:
-            if query.get("log"):
-                return bucket.get("log", [])[bucket["start"] :]
-            if query.get("key"):
-                return bucket.get(query["key"])
-            elif query.get("keys"):
-                return [bucket.get(key) for key in query["keys"]]
-        return {}
+            if query["store"] == "log":
+                return Log(bucket).list(query["start"])
+            else:
+                if query.get("key"):
+                    return bucket.get(query["key"])
+                elif query.get("keys"):
+                    return [bucket.get(key) for key in query["keys"]]
+        return None
 
 
 def add_raft_routes(app, raft: Raft):
@@ -113,6 +151,7 @@ def add_raft_routes(app, raft: Raft):
                         "op": "-",
                         "key": key,
                         "bucket": bucket,
+                        "store": "keyvalue",
                     }
                 )
             )
@@ -122,31 +161,7 @@ def add_raft_routes(app, raft: Raft):
                     {
                         "key": key,
                         "bucket": bucket,
-                    }
-                )
-            )
-
-    @app.route("/bulk/<bucket>/<keys>", methods=["DELETE", "GET"])
-    def bulk_delete(bucket, keys):
-        if request.method == "DELETE":
-            return response(
-                raft.append_entry(
-                    [
-                        {
-                            "op": "-",
-                            "key": key,
-                            "bucket": bucket,
-                        }
-                        for key in keys.split(",")
-                    ]
-                )
-            )
-        else:
-            return response(
-                raft.results(
-                    {
-                        "bucket": bucket,
-                        "keys": keys.split(","),
+                        "store": "keyvalue",
                     }
                 )
             )
@@ -160,6 +175,7 @@ def add_raft_routes(app, raft: Raft):
                     "bucket": bucket,
                     "key": key,
                     "val": request.get_json(),
+                    "store": "keyvalue",
                 }
             )
         )
@@ -171,24 +187,24 @@ def add_raft_routes(app, raft: Raft):
                 {
                     "op": "append",
                     "bucket": bucket,
-                    "start": start,
+                    "start": int(start),
                     "val": request.get_json(),
+                    "store": "log",
                 }
             )
         )
 
     @app.route("/log/<bucket>/<start>", methods=["DELETE", "GET"])
-    def log_get_delete(bucket, start):
+    def log_get(bucket, start):
         if request.method == "DELETE":
             return response(
                 raft.append_entry(
-                    [
-                        {
-                            "op": "drop",
-                            "start": start,
-                            "bucket": bucket,
-                        }
-                    ]
+                    {
+                        "op": "drop",
+                        "start": int(start) if start else None,
+                        "bucket": bucket,
+                        "store": "log",
+                    }
                 )
             )
         else:
@@ -196,7 +212,8 @@ def add_raft_routes(app, raft: Raft):
                 raft.results(
                     {
                         "bucket": bucket,
-                        "log": start,
+                        "start": int(start),
+                        "store": "log",
                     }
                 )
             )
@@ -218,12 +235,12 @@ def retry(times, func) -> Union[Dict, None]:
             if done:
                 return res
         except Exception as e:
-            logging.exception("Retry")
+            logger.exception("Retry")
             ex = e
 
         i += 1
         secs = pow(2, i % 10) / 100 + random()
-        print(f"retry {i} in {secs} {str(ex)} {res} ")
+        logger.error(f"retry {i} in {secs} {str(ex)} {res} ")
         time.sleep(secs)
     if ex is not None:
         raise ex
@@ -282,7 +299,7 @@ class Client:
             content = res.json()
             if res.status_code == 200:
                 return (True, None)
-            elif content.get("redirect"):
+            if content.get("redirect"):
                 self.host = content["redirect"]
             return (False, res.text)
 
@@ -349,7 +366,7 @@ if __name__ == "__main__":
     container = client.containers.get(os.environ["HOSTNAME"])
     name = container.name
     replicas = get_replicas()
-    print(name, replicas)
+    logger.info("%s %s", name, replicas)
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 

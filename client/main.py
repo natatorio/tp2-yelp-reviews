@@ -18,11 +18,7 @@ QUERIES = 5
 
 
 def publish_file(
-    file_path,
-    chunk_size,
-    max_size,
-    session_id,
-    pipe_out: pipe.Pipe,
+    file_path, chunk_size, max_size, session_id, pipe_out: pipe.Pipe, pause=None
 ):
     item_count = 0
     with zipfile.ZipFile(file_path) as z:
@@ -39,6 +35,9 @@ def publish_file(
                             "id": item_count,
                         }
                     )
+                    if pause is not None and item_count % pause == 0:
+                        logger.info("%s press enter to continue", item_count)
+                        _ = input()
                     lines = f.readlines(chunk_size)
     logger.info("%s items read from %s", item_count, file_path)
     return item_count
@@ -80,6 +79,7 @@ def main():
             max_size=MAX_REVIEWS,
             session_id=session_id,
             pipe_out=reviews,
+            pause=int(MAX_REVIEWS / 2),
         )
     finally:
         reviews.send(

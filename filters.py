@@ -2,7 +2,7 @@ import os
 
 import logging
 from threading import Barrier, Event
-from typing import Dict, List
+from typing import List
 from pipe import Pipe, Send
 
 logger = logging.getLogger("filter")
@@ -16,7 +16,7 @@ class Cursor:
     def start(self) -> object:
         return {}
 
-    def step(self, acc, data, context) -> object:
+    def step(self, acc, payload) -> object:
         return None
 
     def end(self, acc, context):
@@ -36,9 +36,8 @@ class Filter:
         acc = cursor.start()
         try:
             for payload, ack in self.pipe_in.recv():
-                data = payload.pop("data", None)
-                if data:
-                    acc = cursor.step(acc, data, payload)
+                if payload.get("data", None) is not None:
+                    acc = cursor.step(acc, payload)
                 else:
                     cursor.end(acc, payload)
                     if cursor.quit(acc, payload):
@@ -92,8 +91,9 @@ class MapperScatter(EndOnce):
     def start(self) -> object:
         return self.start_fn()
 
-    def step(self, acc, data, context) -> object:
-        send_to_all(self.pipes_out, {**context, "data": self.map_fn(data)})
+    def step(self, acc, payload) -> object:
+        data = payload["data"]
+        send_to_all(self.pipes_out, {**payload, "data": self.map_fn(data)})
         return None
 
     def end_once(self, acc, context):
@@ -109,8 +109,8 @@ class ReducerScatter(EndOnce):
         self.pipes_out = pipes_out
         self.step_fn = step_fn
 
-    def step(self, acc, data, context) -> object:
-        return self.step_fn(acc, data)
+    def step(self, acc, payload) -> object:
+        return self.step_fn(acc, payload["data"])
 
     def end_once(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": acc})
@@ -138,7 +138,8 @@ class Join:
             self.parent.left_acc = {}
             return self.parent.left_acc
 
-        def step(self, acc, left_data, context) -> object:
+        def step(self, acc, payload) -> object:
+            left_data = payload["data"]
             self.parent.left_acc = self.parent.left_fn(
                 acc,
                 left_data,
@@ -164,7 +165,8 @@ class Join:
             self.parent.right_acc = {}
             return self.parent.right_acc
 
-        def step(self, acc, right_data, context) -> object:
+        def step(self, acc, payload) -> object:
+            right_data = payload["data"]
             self.parent.right_acc = self.parent.right_fn(
                 acc,
                 self.parent.left_acc,
@@ -193,8 +195,8 @@ class Notify(Cursor):
     def __init__(self, observer) -> None:
         self.observer = observer
 
-    def step(self, acc, data, context) -> object:
-        return data
+    def step(self, acc, payload) -> object:
+        return payload["data"]
 
     def end(self, acc, context):
         self.observer(acc)
@@ -210,53 +212,58 @@ class Persistent(Cursor):
         self.name = name
 
     def setup(self, caller):
-        return super().setup(caller)
+        return self.cursor.setup(caller)
 
     def quit(self, acc, context) -> bool:
-        return super().quit(acc, context)
+        return self.cursor.quit(acc, context)
 
     def start(self) -> object:
         state = self.db.get(self.name, "state")
         if state is None:
-            state = {}
-        acc = state.get("acc")
-        if acc is None:
+            self.seq_num = 0
+            self.db.log_drop(self.name, None)
             acc = self.cursor.start()
-        self.seq_num = state.get("seq_num", 0)
-        if self.seq_num:
-            context = state.get("context", {})
-            items = self.db.log_fetch(self.name, self.seq_num)
-            for item in items:
-                acc = self.cursor.step(acc, item, context)
-                self.seq_num += 1
-        return acc
-
-    def step(self, acc, data, context) -> object:
-        self.db.log_append(self.name, self.seq_num, data)
-        acc = self.cursor.step(acc, data, context)
-        self.seq_num += 1
-        if self.seq_num % 100 == 0:
             self.db.put(
                 self.name,
                 "state",
                 {
                     "acc": acc,
-                    "context": context,
-                    "last_seq": self.seq_num,
+                    "context": None,
+                    "seq_num": self.seq_num,
+                },
+            )
+            return acc
+        else:
+            self.seq_num = state["seq_num"]
+            acc = state["acc"]
+            context = state["context"]
+            items = self.db.log_fetch(self.name, self.seq_num)
+            for item in items:
+                acc = self.cursor.step(acc, item, context)
+                self.seq_num += 1
+            return acc
+
+    def step(self, acc, payload) -> object:
+        self.db.log_append(self.name, self.seq_num, payload)
+        acc = self.cursor.step(acc, payload)
+        self.seq_num += 1
+        if self.seq_num % 100 == 0:
+            payload.pop("data", None)
+            self.db.put(
+                self.name,
+                "state",
+                {
+                    "acc": acc,
+                    "context": payload,
+                    "seq_num": self.seq_num,
                 },
             )
             self.db.log_drop(self.name, self.seq_num)
         return acc
 
     def end(self, acc, context):
-        self.db.put(
+        self.cursor.end(acc, context)
+        self.db.delete(
             self.name,
             "state",
-            {
-                "acc": acc,
-                "context": context,
-                "last_seq": self.seq_num,
-            },
         )
-        self.db.log_drop(self.name, self.seq_num + 1)
-        self.cursor.end(acc, context)
