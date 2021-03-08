@@ -1,5 +1,5 @@
+import sys
 import os
-
 import logging
 from threading import Barrier, Event
 from typing import List
@@ -25,6 +25,9 @@ class Cursor:
     def quit(self, acc, context) -> bool:
         return False
 
+    def exception(self, ex):
+        raise ex
+
 
 class Filter:
     def __init__(self, pipe_in: Pipe):
@@ -44,6 +47,8 @@ class Filter:
                         break
                     acc = cursor.start()
                 ack()
+        except Exception as e:
+            cursor.exception(e)
         finally:
             self.pipe_in.cancel()
         logger.info("done consuming %s", self.pipe_in)
@@ -148,14 +153,14 @@ class Join:
             return self.parent.left_acc
 
         def end_once(self, left_data, context):
-            print("left", len(self.parent.left_acc), len(self.parent.right_acc))
             self.parent.barrier.wait()
             acc = self.parent.join_fn(self.parent.left_acc, self.parent.right_acc)
             self.parent.send_done.set()
-            print(acc)
             send_to_all(self.parent.pipes_out, {**context, "data": acc})
             send_to_all(self.parent.pipes_out, {**context, "data": None})
-            print("end left")
+
+        def exception(self, ex):
+            sys.exit(1)
 
     class Right(EndOnce):
         def __init__(self, parent) -> None:
@@ -178,7 +183,9 @@ class Join:
             self.parent.barrier.wait()
             self.parent.send_done.wait()
             self.parent.send_done.clear()
-            print("end right")
+
+        def exception(self, ex):
+            sys.exit(1)
 
     def left(self):
         return Join.Left(self)
@@ -267,3 +274,6 @@ class Persistent(Cursor):
             self.name,
             "state",
         )
+
+    def exception(self, ex):
+        return self.cursor.exception(ex)

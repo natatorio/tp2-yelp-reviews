@@ -201,7 +201,7 @@ def add_raft_routes(app, raft: Raft):
                 raft.append_entry(
                     {
                         "op": "drop",
-                        "start": int(start) if start else None,
+                        "start": int(start) if start != "None" else None,
                         "bucket": bucket,
                         "store": "log",
                     }
