@@ -99,6 +99,10 @@ class MapperScatter(EndOnce):
     def end_once(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": None})
 
+    def close(self):
+        for pipe_out in self.pipes_out:
+            pipe_out.close()
+
 
 class ReducerScatter(EndOnce):
     def __init__(self, step_fn, pipes_out: List[Send]) -> None:
@@ -111,6 +115,10 @@ class ReducerScatter(EndOnce):
     def end_once(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": acc})
         send_to_all(self.pipes_out, {**context, "data": None})
+
+    def close(self):
+        for pipe_out in self.pipes_out:
+            pipe_out.close()
 
 
 class Join:
@@ -176,6 +184,10 @@ class Join:
     def right(self):
         return Join.Right(self)
 
+    def close(self):
+        for pipe_out in self.pipes_out:
+            pipe_out.close()
+
 
 class Notify(Cursor):
     def __init__(self, observer) -> None:
@@ -207,7 +219,9 @@ class Persistent(Cursor):
         state = self.db.get(self.name, "state")
         if state is None:
             state = {}
-        acc = state.get("acc", {})
+        acc = state.get("acc")
+        if acc is None:
+            acc = self.cursor.start()
         self.seq_num = state.get("seq_num", 0)
         if self.seq_num:
             context = state.get("context", {})
@@ -244,4 +258,5 @@ class Persistent(Cursor):
                 "last_seq": self.seq_num,
             },
         )
-        self.db.log_drop(self.name, -1)
+        self.db.log_drop(self.name, self.seq_num + 1)
+        self.cursor.end(acc, context)

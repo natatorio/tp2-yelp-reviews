@@ -1,4 +1,4 @@
-from consumers import CounterBy
+from filters import Persistent, ReducerScatter, Filter
 from health_server import HealthServer
 import pipe
 from pipe import Formatted
@@ -18,17 +18,29 @@ def main():
         )
 
     healthServer = HealthServer()
-    counter = CounterBy(
-        pipe.consume_users(),
-        [
+    counter = Filter(pipe.consume_users())
+
+    def aggregate(acc, data):
+        for elem in data:
+            acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
+        return acc
+
+    reducer = ReducerScatter(
+        step_fn=aggregate,
+        pipes_out=[
             Formatted(pipe.consume_star5_data(), user_count_50),
             Formatted(pipe.consume_comment_data(), user_count_5),
             Formatted(pipe.annon(), user_count_150),
         ],
-        key_id="user_id",
     )
-    counter.run()
+    counter.run(
+        Persistent(
+            cursor=reducer,
+            name="users",
+        )
+    )
     counter.close()
+    reducer.close()
     healthServer.stop()
 
 
