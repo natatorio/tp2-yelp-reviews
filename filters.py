@@ -10,19 +10,19 @@ logger.setLevel(logging.INFO)
 
 
 class Cursor:
-    def start(self, caller) -> object:
-        return None
+    def setup(self, caller):
+        return
 
-    def restart(self) -> object:
-        return None
+    def start(self) -> object:
+        return {}
 
     def step(self, acc, data, context) -> object:
         return None
 
     def end(self, acc, context):
-        return
+        pass
 
-    def break_end(self, acc, context) -> bool:
+    def quit(self, acc, context) -> bool:
         return False
 
 
@@ -32,7 +32,8 @@ class Filter:
 
     def run(self, cursor: Cursor):
         logger.info("start consuming %s", self.pipe_in)
-        acc = cursor.start(self)
+        cursor.setup(self)
+        acc = cursor.start()
         try:
             for payload, ack in self.pipe_in.recv():
                 data = payload.pop("data", None)
@@ -40,9 +41,9 @@ class Filter:
                     acc = cursor.step(acc, data, payload)
                 else:
                     cursor.end(acc, payload)
-                    if cursor.break_end(acc, payload):
+                    if cursor.quit(acc, payload):
                         break
-                    acc = cursor.restart()
+                    acc = cursor.start()
                 ack()
         finally:
             self.pipe_in.cancel()
@@ -60,9 +61,8 @@ def send_to_all(pipes_out: List[Send], data):
 class EndOnce(Cursor):
     replicas = int(os.environ.get("N_REPLICAS", 1))
 
-    def start(self, caller) -> object:
+    def setup(self, caller) -> object:
         self.pipe_in = caller.pipe_in
-        return self.start_once()
 
     def end(self, acc, context):
         count_down = context.pop("count_down", self.replicas)
@@ -79,9 +79,6 @@ class EndOnce(Cursor):
             logger.info("batch done: %s %s", self.pipe_in, context["session_id"])
             self.end_once(acc, context)
 
-    def start_once(self):
-        return None
-
     def end_once(self, acc, context):
         return
 
@@ -92,19 +89,15 @@ class MapperScatter(EndOnce):
         self.map_fn = map_fn
         self.start_fn = start_fn
 
-    def start_once(self) -> object:
-        return self.start_fn()
-
-    def restart(self) -> object:
+    def start(self) -> object:
         return self.start_fn()
 
     def step(self, acc, data, context) -> object:
         send_to_all(self.pipes_out, {**context, "data": self.map_fn(data)})
         return None
 
-    def end_once(self, acc, context) -> bool:
+    def end_once(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": None})
-        return False
 
 
 class ReducerScatter(EndOnce):
@@ -112,19 +105,12 @@ class ReducerScatter(EndOnce):
         self.pipes_out = pipes_out
         self.step_fn = step_fn
 
-    def start_once(self) -> object:
-        return {}
-
-    def restart(self) -> object:
-        return {}
-
     def step(self, acc, data, context) -> object:
         return self.step_fn(acc, data)
 
-    def end_once(self, acc, context) -> bool:
+    def end_once(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": acc})
         send_to_all(self.pipes_out, {**context, "data": None})
-        return False
 
 
 class Join:
@@ -140,11 +126,7 @@ class Join:
         def __init__(self, parent) -> None:
             self.parent = parent
 
-        def start_once(self) -> object:
-            self.parent.left_acc = {}
-            return self.parent.left_acc
-
-        def restart(self) -> object:
+        def start(self) -> object:
             self.parent.left_acc = {}
             return self.parent.left_acc
 
@@ -170,11 +152,7 @@ class Join:
         def __init__(self, parent) -> None:
             self.parent = parent
 
-        def start_once(self) -> object:
-            self.parent.right_acc = {}
-            return self.parent.right_acc
-
-        def restart(self) -> object:
+        def start(self) -> object:
             self.parent.right_acc = {}
             return self.parent.right_acc
 
@@ -203,15 +181,42 @@ class Notify(Cursor):
     def __init__(self, observer) -> None:
         self.observer = observer
 
-    def start(self, caller) -> object:
-        return None
-
-    def restart(self) -> object:
-        return None
-
     def step(self, acc, data, context) -> object:
         return data
 
-    def end(self, acc, context) -> bool:
+    def end(self, acc, context):
         self.observer(acc)
-        return False
+
+
+class Persistent:
+    def __init__(self, cursor, db, name) -> None:
+        self.cursor = cursor
+        self.db = db
+        self.name = name
+
+    def start(self) -> object:
+        state = self.db.state.get(self.name, {})
+        acc = state["acc"]
+        self.seq_num = state.get("start_seq")
+        if self.seq_num:
+            items = self.db.items.get(self.name, start=self.seq_num)
+            for item in items:
+                acc = self.cursor.step(state["acc"], item, state["context"])
+                self.seq_num += 1
+        else:
+            self.seq_num = 0
+        return acc
+
+    def step(self, acc, data, context) -> object:
+        self.db.items.append(self.seq_num, data)
+        acc = self.cursor.step(acc, data, context)
+        self.seq_num += 1
+        if self.seq_num % 100 == 0:
+            self.db.state.save(
+                {"acc": acc, "context": context, "last_seq": self.seq_num}
+            )
+            self.db.items.drop(self.seq_num)
+        return acc
+
+    def end(self, acc, context):
+        self.db.state.save({"acc": acc, "context": context, "last_seq": self.seq_num})
