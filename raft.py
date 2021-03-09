@@ -8,8 +8,8 @@ from scheduler import Scheduler
 import requests
 import logging
 
-HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", 2000))
-FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 5000))
+HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", 1000))
+FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 2000))
 HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", 30 * 1000))
 HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 100)) * 1024 * 1024
 
@@ -665,24 +665,3 @@ class Raft:
     def snapshot(self):
         with self.lock:
             return self.state.snapshot()
-
-
-class RaftTest(Raft):
-    def __init__(self, name, replicas) -> None:
-        self.state = None
-        super().__init__(name, replicas)
-
-    def fetch(self, replica, service, data):
-        print(data)
-        return {
-            "success": True,
-            "snapshot_version": 0,
-            "vote_granted": True,
-            "term": 0,
-        }
-
-    def schedule(self, delaymillis, func):
-        return func()
-
-
-raft = RaftTest("1", ["1", "2", "3"])

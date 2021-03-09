@@ -2,7 +2,7 @@ import sys
 import os
 import logging
 from threading import Barrier, Event
-from typing import List
+from typing import Dict, List, cast
 from pipe import Pipe, Send
 
 logger = logging.getLogger("filter")
@@ -71,7 +71,7 @@ class EndOnce(Cursor):
     def end(self, acc, context):
         count_down = context.pop("count_down", self.replicas)
         if count_down > 1:
-            logger.info("count_down %s", count_down)
+            logger.info("count_down %s %s", count_down, self.pipe_in)
             self.pipe_in.send(
                 {
                     **context,
@@ -213,6 +213,8 @@ from kevasto import Client
 
 
 class Persistent(Cursor):
+    processed: set
+
     def __init__(self, cursor, name) -> None:
         self.cursor = cursor
         self.db = Client()
@@ -225,10 +227,11 @@ class Persistent(Cursor):
         return self.cursor.quit(acc, context)
 
     def start(self) -> object:
-        state = self.db.get(self.name, "state")
+        state = cast(Dict, self.db.get(self.name, "state"))
         if state is None:
             self.seq_num = 0
             self.db.log_drop(self.name, None)
+            self.processed = set()
             acc = self.cursor.start()
             self.db.put(
                 self.name,
@@ -245,13 +248,21 @@ class Persistent(Cursor):
             acc = state["acc"]
             context = state["context"]
             items = self.db.log_fetch(self.name, self.seq_num)
+            processed = self.db.get(self.name, "processed")
+            if processed is None:
+                processed = []
+            self.processed = set(processed)
             for item in items:
+                self.processed.add(item["id"])
                 acc = self.cursor.step(acc, item, context)
                 self.seq_num += 1
             return acc
 
     def step(self, acc, payload) -> object:
+        if payload["id"] in self.processed:
+            return acc
         self.db.log_append(self.name, self.seq_num, payload)
+        self.processed.add(payload["id"])
         acc = self.cursor.step(acc, payload)
         self.seq_num += 1
         if self.seq_num % 100 == 0:

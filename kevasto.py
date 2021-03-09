@@ -1,13 +1,11 @@
-import os
 from random import random
 import time
-from typing import Dict, Union
+from typing import Any, Dict, Union
 import requests
 import logging
-import docker
-from flask import Flask, request
+from flask import request
 
-from raft import Leader, NopVM, Raft
+from raft import Follower, Leader, NopVM, Raft
 import logging
 
 logging.basicConfig(level=logging.ERROR)
@@ -44,7 +42,7 @@ class Log:
             self.data["entries"] = self.data["entries"][index:]
 
     def concat(self, values):
-        self.data["entries"] += values
+        self.data["entries"].extend(values)
 
 
 class KeyValueVM(NopVM):
@@ -117,7 +115,11 @@ def add_raft_routes(app, raft: Raft):
                 "next_index": raft.state.next_index,
                 "snapshot_index": raft.state.snapshot_index,
             }
+        follower = {}
+        if isinstance(raft.state, Follower):
+            follower = {"election_timeout": raft.state.election_timeout}
         res = {
+            "follower": follower,
             "entries": len(raft.entries),
             "voted_for": raft.voted_for,
             "current_term": raft.current_term,
@@ -265,7 +267,7 @@ class Client:
             10, lambda: __delete__(f"http://{self.host}:80/keyvalue/{bucket}/{key}")
         )
 
-    def get(self, bucket, key) -> Union[Dict, None]:
+    def get(self, bucket, key) -> Union[None, Any]:
         def __get__(url):
             res = requests.get(url)
             content = res.json()
@@ -332,50 +334,3 @@ class Client:
             return (False, res.text)
 
         return retry(10, lambda: __get__(f"http://{self.host}:80/log/{bucket}/{start}"))
-
-
-# def manual_test():
-#     response = requests.post("http://localhost:8083/append_entry", json={"a": "a"})
-#     for i in range(10, 15):
-#         requests.put(f"http://localhost:8081/database/{i}", json={"index": i})
-#     response = requests.get("http://localhost:8083/database/1")
-
-
-def get_name(str):
-    s = str.split("_")
-    if len(s) == 3:
-        return s[1] + "_" + s[2]
-    else:
-        return s[0]
-
-
-def get_replicas():
-    replicas = []
-    i = 0
-    while len(replicas) < int(os.environ["N_REPLICAS"]):
-        replicas = [
-            c.name for c in client.containers.list() if os.environ["NAME"] in c.name
-        ]
-        time.sleep(0.5)
-        i += 1
-    return replicas
-
-
-if __name__ == "__main__":
-    client = docker.from_env()
-    container = client.containers.get(os.environ["HOSTNAME"])
-    name = container.name
-    replicas = get_replicas()
-    logger.info("%s %s", name, replicas)
-    logging.basicConfig(level=logging.INFO)
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
-    app = Flask(__name__)
-    raft = Raft(
-        name,
-        replicas,
-        KeyValueVM(),
-        housekeep=True,
-    )
-    add_raft_routes(app, raft)
-    app.run(host="0.0.0.0", port=80, threaded=True)

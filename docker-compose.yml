@@ -13,7 +13,7 @@ services:
     image: reviews
     build:
       context: .
-    entrypoint: python3 -m kevasto
+    entrypoint: python3 -m main_kevasto
     environment:
       - NAME=kevasto
       - N_REPLICAS=3

@@ -4,6 +4,9 @@ import logging
 import pika
 import os
 
+
+from contextlib import contextmanager
+
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger("pipe")
 logger.setLevel(logging.INFO)
@@ -36,7 +39,15 @@ class Connection:
         raise Exception("Couldn't instantiate channel")
 
 
-CONNECTION = Connection()
+@contextmanager
+def lease_channel():
+    connection = Connection()
+    channel = connection.channel()
+    try:
+        yield channel
+    finally:
+        channel.close()
+        connection.close()
 
 
 class Send:
@@ -103,28 +114,25 @@ class Pipe(Send, Recv):
         logger.info("pipe %s %s %s", exchange, routing_key, queue)
         self.connection = None
         self.channel = None
+        with lease_channel() as channel:
+            self.exchange = exchange
+            if exchange:
+                channel.exchange_declare(exchange=self.exchange, exchange_type="direct")
 
-        channel = CONNECTION.channel()
-        self.exchange = exchange
-        if exchange:
-            channel.exchange_declare(exchange=self.exchange, exchange_type="direct")
+            self.remove_queue = not queue
+            queue_response = channel.queue_declare(queue=queue, durable=True)
+            self.queue = queue_response.method.queue
 
-        queue_response = channel.queue_declare(queue=queue, durable=True)
-        self.queue = queue_response.method.queue
-        if not queue:
-            print("ANNON QUEUE")
+            self.routing_key = self.queue
+            if routing_key:
+                self.routing_key = routing_key
 
-        self.routing_key = self.queue
-        if routing_key:
-            self.routing_key = routing_key
-
-        if self.exchange and self.queue:
-            channel.queue_bind(
-                exchange=self.exchange,
-                queue=self.queue,
-                routing_key=self.routing_key,
-            )
-        channel.close()
+            if self.exchange and self.queue:
+                channel.queue_bind(
+                    exchange=self.exchange,
+                    queue=self.queue,
+                    routing_key=self.routing_key,
+                )
 
     def __str__(self) -> str:
         return f"Pipe[{self.exchange},{self.routing_key},{self.queue}]"
@@ -159,6 +167,14 @@ class Pipe(Send, Recv):
             self.channel.close()
         if self.connection is not None:
             self.connection.close()
+        if self.remove_queue:
+            with lease_channel() as channel:
+                channel.queue_unbind(
+                    queue=self.queue,
+                    exchange=self.exchange,
+                    routing_key=self.routing_key,
+                )
+                channel.queue_delete(queue=self.queue)
 
     def __enter__(self):
         return self
