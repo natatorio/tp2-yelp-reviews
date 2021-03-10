@@ -86,7 +86,7 @@ class Send:
             self.connection.close()
 
 
-class Formatted:
+class Formatted(Send):
     def __init__(self, sender, formatter) -> None:
         self.sender = sender
         self.formatter = formatter

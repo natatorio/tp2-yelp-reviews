@@ -6,6 +6,7 @@ RUN apt-get update
 RUN apt install docker.io -y
 RUN docker --version
 RUN pip install docker
+RUN pip install cherrypy 
 COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5

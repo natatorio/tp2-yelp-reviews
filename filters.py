@@ -70,6 +70,7 @@ class EndOnce(Cursor):
         self.pipe_in = caller.pipe_in
 
     def end(self, acc, context):
+        self.done(acc, context)
         count_down = context.pop("count_down", self.replicas)
         if count_down > 1:
             logger.info("count_down %s %s", count_down, self.pipe_in)
@@ -81,10 +82,13 @@ class EndOnce(Cursor):
                 }
             )
         else:
-            logger.info("batch done: %s %s", self.pipe_in, context["session_id"])
             self.end_once(acc, context)
+            logger.info("batch done: %s %s", self.pipe_in, context["session_id"])
 
     def end_once(self, acc, context):
+        return
+
+    def done(self, acc, context):
         return
 
 
@@ -93,6 +97,10 @@ class MapperScatter(EndOnce):
         self.pipes_out = pipes_out
         self.map_fn = map_fn
         self.start_fn = start_fn
+        self.replicas = int(os.environ.get("N_REPLICAS", 1))
+
+    def setup(self, caller) -> object:
+        self.pipe_in = caller.pipe_in
 
     def start(self) -> object:
         return self.start_fn()
@@ -118,8 +126,10 @@ class ReducerScatter(EndOnce):
     def step(self, acc, payload) -> object:
         return self.step_fn(acc, payload["data"])
 
-    def end_once(self, acc, context):
+    def done(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": acc})
+
+    def end_once(self, acc, context):
         send_to_all(self.pipes_out, {**context, "data": None})
 
     def close(self):
@@ -220,6 +230,7 @@ class Persistent(Cursor):
         self.cursor = cursor
         self.db = Client()
         self.name = name
+        self.batch_done = set()
 
     def setup(self, caller):
         return self.cursor.setup(caller)
@@ -227,39 +238,49 @@ class Persistent(Cursor):
     def quit(self, acc, context) -> bool:
         return self.cursor.quit(acc, context)
 
+    def start_from_scratch(self):
+        self.seq_num = 0
+        self.db.log_drop(self.name, None)
+        self.processed = set()
+        acc = self.cursor.start()
+        self.db.put(
+            self.name,
+            "state",
+            {
+                "acc": acc,
+                "seq_num": self.seq_num,
+            },
+        )
+        return acc
+
+    def start_from_checkpoint(self, state):
+        self.seq_num = state["seq_num"]
+        acc = state["acc"]
+        items = self.db.log_fetch(self.name, self.seq_num)
+        processed = self.db.get(self.name, "processed")
+        if processed is None:
+            processed = []
+        self.processed = set(processed)
+        for item in items:
+            self.processed.add(item["id"])
+            if item.get("data") is None:
+                self.end(acc, item)
+                acc = self.start_from_scratch()
+            else:
+                acc = self.cursor.step(acc, item)
+                self.seq_num += 1
+        return acc
+
     def start(self) -> object:
         state = cast(Dict, self.db.get(self.name, "state"))
         if state is None:
-            self.seq_num = 0
-            self.db.log_drop(self.name, None)
-            self.processed = set()
-            acc = self.cursor.start()
-            self.db.put(
-                self.name,
-                "state",
-                {
-                    "acc": acc,
-                    "context": None,
-                    "seq_num": self.seq_num,
-                },
-            )
-            return acc
+            return self.start_from_scratch()
         else:
-            self.seq_num = state["seq_num"]
-            acc = state["acc"]
-            context = state["context"]
-            items = self.db.log_fetch(self.name, self.seq_num)
-            processed = self.db.get(self.name, "processed")
-            if processed is None:
-                processed = []
-            self.processed = set(processed)
-            for item in items:
-                self.processed.add(item["id"])
-                acc = self.cursor.step(acc, item, context)
-                self.seq_num += 1
-            return acc
+            return self.start_from_checkpoint(state)
 
     def step(self, acc, payload) -> object:
+        if payload["session_id"] in self.batch_done:
+            return acc
         if payload["id"] in self.processed:
             return acc
         self.db.log_append(self.name, self.seq_num, payload)
@@ -273,19 +294,21 @@ class Persistent(Cursor):
                 "state",
                 {
                     "acc": acc,
-                    "context": payload,
                     "seq_num": self.seq_num,
                 },
             )
             self.db.log_drop(self.name, self.seq_num)
         return acc
 
-    def end(self, acc, context):
-        self.cursor.end(acc, context)
+    def end(self, acc, payload):
+        # if payload["session_id"] in self.batch_done:
+        self.db.log_append(self.name, self.seq_num, payload)
+        self.cursor.end(acc, payload)
         self.db.delete(
             self.name,
             "state",
         )
+        self.batch_done.add(payload["session_id"])
 
     def exception(self, ex):
         return self.cursor.exception(ex)
