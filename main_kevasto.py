@@ -2,7 +2,8 @@ import os
 import time
 import logging
 import docker
-from flask import Flask, request
+from werkzeug.serving import WSGIRequestHandler
+from flask import Flask
 
 from kevasto import *
 
@@ -41,7 +42,6 @@ def main():
     logger.info("%s %s", name, replicas)
     logging.basicConfig(level=logging.INFO)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
     app = Flask(__name__)
     raft = Raft(
         name,

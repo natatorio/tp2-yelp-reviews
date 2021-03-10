@@ -1,8 +1,10 @@
+import contextlib
 from datetime import datetime, timedelta
 import json
 import os
 import random
 from threading import RLock
+from time import time
 
 from scheduler import Scheduler
 import requests
@@ -15,6 +17,13 @@ HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 100)) * 1024
 
 logger = logging.getLogger("raft")
 logger.setLevel(logging.INFO)
+
+
+@contextlib.contextmanager
+def append_measure(name, stats):
+    start_time = time()
+    yield None
+    stats[name].append(time() - start_time)
 
 
 def create_if_not_exists(file_path):
@@ -217,7 +226,8 @@ class Leader:
             self.context.schedule(self.heartbeat_timeout, self.heartbeat)
 
         if self.context.voted_for == self.context.name:
-            commited = self.update_replicas()
+            with append_measure("heartbeat_time", self.context.stats):
+                commited = self.update_replicas()
             if commited > self.context.commit_index:
                 self.context.__update_commit_index__(commited)
             self.context.schedule(self.heartbeat_timeout, self.heartbeat)
@@ -442,10 +452,36 @@ class Raft:
         if len(self.entries) > 1:
             self.machine.run(self.entries[1 : self.commit_index + 1])
 
+        self.session = requests
         self.lock = RLock()
         self.scheduler = Scheduler()
         self.housekeeper = Scheduler()
         self.as_follower()
+        self.reset_stats()
+
+    def get_stats(self):
+        def avg(a):
+            if len(a) <= 0:
+                return None
+            else:
+                return sum(a) / len(a)
+
+        return {
+            "truncate": self.stats["truncate"],
+            "commit_time": avg(self.stats["commit_time"]),
+            "snapshot_time": avg(self.stats["snapshot_time"]),
+            "heartbeat_time": avg(self.stats["heartbeat_time"]),
+        }
+
+    def reset_stats(self):
+        self.stats = {
+            "begin": datetime.now(),
+            "truncate": 0,
+            "snapshot_time": [],
+            "heartbeat_time": [],
+            "commit_time": [],
+        }
+        self.schedule(120000, self.reset_stats)
 
     def append_entry(self, req):
         with self.lock:
@@ -461,10 +497,11 @@ class Raft:
 
     def __append_entry__(self, start, reqs):
         if start < len(self.entries):
+            self.stats["truncate"] += 1
             self.log.truncate(self.seek[start])
             self.entries = self.entries[:start]
             self.seek = self.seek[:start]
-        self.entries += reqs
+        self.entries.extend(reqs)
         for req in reqs:
             self.seek.append(self.log.tell())
             write_json_line(self.log, req)
@@ -581,15 +618,17 @@ class Raft:
         }
 
     def __update_commit_index__(self, commited):
-        prev_index = self.commit_index
-        self.commit_index = commited
-        self.machine.run(self.entries[prev_index + 1 : commited + 1])
-        self.save_config()
+        with append_measure("commit_time", self.stats):
+            prev_index = self.commit_index
+            self.commit_index = commited
+            self.machine.run(self.entries[prev_index + 1 : commited + 1])
+            self.save_config()
 
     def __snapshot__(self):
-        snapshot_version = self.snapshot_version + self.commit_index
-        entries = self.entries[self.commit_index + 1 :]
-        self.save_snapshot(snapshot_version, entries)
+        with append_measure("snapshot_time", self.stats):
+            snapshot_version = self.snapshot_version + self.commit_index
+            entries = self.entries[self.commit_index + 1 :]
+            self.save_snapshot(snapshot_version, entries)
 
     def save_snapshot(self, snapshot_version, entries):
         logger.info("snapshot start")
@@ -641,7 +680,7 @@ class Raft:
 
     def fetch(self, replica, service, data):
         try:
-            response = requests.post(f"http://{replica}/{service}", json=data)
+            response = self.session.post(f"http://{replica}/{service}", json=data)
             if response.status_code == 200:
                 return response.json()
             logger.info(f"{response.status_code}, {response.text}")

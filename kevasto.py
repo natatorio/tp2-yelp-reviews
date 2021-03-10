@@ -131,6 +131,7 @@ def add_raft_routes(app, raft: Raft):
             "index": leader,
             "log": raft.log.tell(),
             "machine": len(raft.machine.data),
+            "stats": raft.get_stats(),
         }
         return res
 
@@ -252,10 +253,11 @@ def retry(times, func) -> Union[Dict, None]:
 class Client:
     def __init__(self, host="tp3_kevasto_1") -> None:
         self.host = host
+        self.session = requests
 
     def delete(self, bucket, key):
         def __delete__(url):
-            res = requests.delete(url)
+            res = self.session.delete(url)
             content = res.json()
             if res.status_code == 200:
                 return (True, None)
@@ -269,7 +271,7 @@ class Client:
 
     def get(self, bucket, key) -> Union[None, Any]:
         def __get__(url):
-            res = requests.get(url)
+            res = self.session.get(url)
             content = res.json()
             if res.status_code == 200:
                 return (True, content["data"])
@@ -283,7 +285,7 @@ class Client:
 
     def put(self, bucket, key, data):
         def __put__(url, data):
-            res = requests.put(url, json=data)
+            res = self.session.put(url, json=data)
             content = res.json()
             if res.status_code == 200:
                 return (True, None)
@@ -297,7 +299,7 @@ class Client:
 
     def log_append(self, bucket, start, data):
         def __post__(url, data):
-            res = requests.post(url, json=data)
+            res = self.session.post(url, json=data)
             content = res.json()
             if res.status_code == 200:
                 return (True, None)
@@ -311,7 +313,7 @@ class Client:
 
     def log_drop(self, bucket, start):
         def __delete__(url):
-            res = requests.delete(url)
+            res = self.session.delete(url)
             content = res.json()
             if res.status_code == 200:
                 return (True, None)
@@ -325,7 +327,7 @@ class Client:
 
     def log_fetch(self, bucket, start):
         def __get__(url):
-            res = requests.get(url)
+            res = self.session.get(url)
             content = res.json()
             if res.status_code == 200:
                 return (True, None)

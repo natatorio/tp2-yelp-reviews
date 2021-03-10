@@ -41,12 +41,13 @@ class Filter:
             for payload, ack in self.pipe_in.recv():
                 if payload.get("data", None) is not None:
                     acc = cursor.step(acc, payload)
+                    ack()
                 else:
                     cursor.end(acc, payload)
+                    ack()
                     if cursor.quit(acc, payload):
                         break
                     acc = cursor.start()
-                ack()
         except Exception as e:
             cursor.exception(e)
         finally:

@@ -3,6 +3,8 @@ from flask import Flask, make_response, jsonify
 import os
 import logging
 
+from werkzeug.serving import WSGIRequestHandler
+
 
 class HealthServer:
     def __init__(self):
