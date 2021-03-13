@@ -1,33 +1,45 @@
-from consumers import Joiner
+from threading import Thread
+from filters import Filter, Join, count_key, use_value
 from health_server import HealthServer
 import pipe
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def main():
-    healthServer = HealthServer()
-    joiner = Joiner(
-        left_in=pipe.consume_star5(),
-        right_in=pipe.consume_star5_data(),
-        join_out=pipe.annon(),
-    )
-
-    def join(left, right):
+    def join(user_count, review_count):
         return (
             "stars5",
-            {k: v for (k, v) in left.items() if v == right.get(k, 0)},
+            {k: v for (k, v) in user_count.items() if v == review_count.get(k, 0)},
         )
 
-    def count(acc, left_data, right_data):
-        for elem in left_data:
-            acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
-        return acc
+    healthServer = HealthServer()
+    left_consumer = Filter(pipe.consume_star5())
+    right_consumer = Filter(pipe.consume_star5_data())
+    joint = Join(join_fn=join, pipe_out=pipe.annon())
+    left_mapper = joint.left(count_key("user_id"))
 
-    def nothing(acc, _, right_data):
-        return right_data
+    def consume_right():
+        right_mapper = joint.right(use_value)
+        try:
+            right_consumer.run(right_mapper)
+        finally:
+            right_mapper.close()
+            right_consumer.close()
 
-    joiner.run(count, nothing, join)
-    joiner.close()
-    healthServer.stop()
+    try:
+        thread = Thread(target=consume_right)
+        thread.start()
+        left_consumer.run(left_mapper)
+        thread.join()
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        left_mapper.close()
+        left_consumer.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":

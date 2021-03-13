@@ -1,7 +1,10 @@
 import hashlib
 from health_server import HealthServer
 import pipe
-from filters import Filter, MapperScatter
+from filters import Filter, Mapper
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -14,15 +17,22 @@ def main():
             for r in reviews
         ]
 
+    consumer = Filter(pipe.map_comment())
     healthServer = HealthServer()
-    cursor = MapperScatter(
+    mapper = Mapper(
         start_fn=lambda: None,
         map_fn=map_user_text,
-        pipes_out=[pipe.consume_comment()],
+        pipe_out=pipe.consume_comment(),
     )
-    mapper = Filter(pipe.map_comment())
-    mapper.run(cursor=cursor)
-    healthServer.stop()
+    try:
+        consumer.run(mapper)
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        consumer.close()
+        mapper.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":

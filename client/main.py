@@ -1,4 +1,5 @@
 import json
+import sys
 import zipfile
 import pprint
 import logging
@@ -36,7 +37,7 @@ def publish_file(
                         }
                     )
                     lines = f.readlines(chunk_size)
-                if pause is not None and item_count % pause == 0:
+                if pause is not None and item_count % pause > pause / 2:
                     logger.info("%s press enter to continue", item_count)
                     input()
     logger.info("%s items read from %s", item_count, file_path)
@@ -47,8 +48,9 @@ def main():
     reports = pipe.annon()
     business = pipe.data_business()
     reviews = pipe.data_review()
-
     session_id = 1
+    if len(sys.argv) > 1:
+        session_id = int(sys.argv[1])
 
     logger.info("start session: %s", session_id)
     logger.info("loading business")
@@ -79,7 +81,7 @@ def main():
             max_size=MAX_REVIEWS,
             session_id=session_id,
             pipe_out=reviews,
-            pause=int(MAX_REVIEWS / 4) * 2,
+            pause=int(MAX_REVIEWS / 2),
         )
     finally:
         reviews.send(

@@ -1,8 +1,11 @@
-from filters import Filter, Persistent, ReducerScatter
+from filters import Filter, Persistent, Reducer, count_key
 from health_server import HealthServer
 
 import pipe
 from pipe import Formatted
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -19,24 +22,24 @@ def main():
             },
         )
 
-    def aggregate(acc, data):
-        for elem in data:
-            acc[elem["city"]] = acc.get(elem["city"], 0) + 1
-        return acc
-
     healthServer = HealthServer()
     consumer = Filter(pipe_in=pipe.consume_funny())
-    consumer.run(
-        Persistent(
-            name="funny",
-            cursor=ReducerScatter(
-                step_fn=aggregate,
-                pipes_out=[Formatted(pipe.annon(), topTenFunnyPerCity)],
-            ),
-        )
+    reducer = Persistent(
+        name="funny",
+        cursor=Reducer(
+            step_fn=count_key("city"),
+            pipe_out=Formatted(pipe.annon(), topTenFunnyPerCity),
+        ),
     )
-    consumer.close()
-    healthServer.stop()
+    try:
+        consumer.run(reducer)
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        reducer.close()
+        consumer.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":

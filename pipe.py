@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import List
 
 import pika
 import os
@@ -50,7 +51,17 @@ def lease_channel():
         connection.close()
 
 
-class Send:
+class Close:
+    def close(self):
+        pass
+
+
+class Send(Close):
+    def send(self, data):
+        pass
+
+
+class Exchange(Send):
     def __init__(self, exchange, routing_key) -> None:
         self.connection = None
         self.channel = None
@@ -101,15 +112,28 @@ class Formatted(Send):
         self.sender.close()
 
 
-class Recv:
+class Scatter(Send):
+    def __init__(self, outputs: List[Send]) -> None:
+        self.outputs = outputs
+
+    def send(self, data):
+        for pipe_out in self.outputs:
+            pipe_out.send(data)
+
+    def close(self):
+        for output in self.outputs:
+            try:
+                output.close()
+            except:
+                logger.exception("on close")
+
+
+class Recv(Close):
     def recv(self, auto_ack=False):
         return
 
-    def close(self):
-        return
 
-
-class Pipe(Send, Recv):
+class Pipe(Recv, Exchange):
     def __init__(self, exchange, routing_key, queue):
         logger.info("pipe %s %s %s", exchange, routing_key, queue)
         self.connection = None
@@ -218,7 +242,7 @@ def consume_users():
 
 # routed by map
 def pub_funny_data():
-    return Send(exchange="map", routing_key="funny.DATA")
+    return Exchange(exchange="map", routing_key="funny.DATA")
 
 
 def sub_map_funny_data():

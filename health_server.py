@@ -2,8 +2,7 @@ import threading
 from flask import Flask, make_response, jsonify
 import os
 import logging
-
-from werkzeug.serving import WSGIRequestHandler
+import bjoern
 
 
 class HealthServer:
@@ -20,7 +19,7 @@ class HealthServer:
 
     def run_server(self):
         self.__route_health_endpoint()
-        self.app.run(debug=True, use_reloader=False, host="0.0.0.0", port=80)
+        bjoern.run(self.app, "0.0.0.0", 80)
 
     def __route_health_endpoint(self):
         @self.app.route("/health", methods=["GET"])

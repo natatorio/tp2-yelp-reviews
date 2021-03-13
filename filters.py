@@ -1,12 +1,24 @@
-import sys
 import os
 import logging
 from threading import Barrier, Event
-from typing import Dict, List, cast
+from typing import Dict, cast
 from pipe import Pipe, Send
 
 logger = logging.getLogger("filter")
 logger.setLevel(logging.INFO)
+
+
+def count_key(key):
+    def key_counter(acc, data):
+        for elem in data:
+            acc[elem[key]] = acc.get(elem[key], 0) + 1
+        return acc
+
+    return key_counter
+
+
+def use_value(acc, right):
+    return right
 
 
 class Cursor:
@@ -36,31 +48,29 @@ class Filter:
     def run(self, cursor: Cursor):
         logger.info("start consuming %s", self.pipe_in)
         cursor.setup(self)
-        acc = cursor.start()
-        try:
-            for payload, ack in self.pipe_in.recv():
-                if payload.get("data", None) is not None:
-                    acc = cursor.step(acc, payload)
-                    ack()
-                else:
-                    cursor.end(acc, payload)
-                    ack()
-                    if cursor.quit(acc, payload):
-                        break
-                    acc = cursor.start()
-        except Exception as e:
-            cursor.exception(e)
-        finally:
-            self.pipe_in.cancel()
+        quit = False
+        while not quit:
+            acc = cursor.start()
+            try:
+                for payload, ack in self.pipe_in.recv():
+                    if payload.get("data"):
+                        acc = cursor.step(acc, payload)
+                        ack()
+                    else:
+                        cursor.end(acc, payload)
+                        ack()
+                        if cursor.quit(acc, payload):
+                            quit = True
+                            break
+                        acc = cursor.start()
+            except Exception as e:
+                cursor.exception(e)
+            finally:
+                self.pipe_in.cancel()
         logger.info("done consuming %s", self.pipe_in)
 
     def close(self):
         self.pipe_in.close()
-
-
-def send_to_all(pipes_out: List[Send], data):
-    for pipe_out in pipes_out:
-        pipe_out.send(data)
 
 
 class EndOnce(Cursor):
@@ -92,9 +102,9 @@ class EndOnce(Cursor):
         return
 
 
-class MapperScatter(EndOnce):
-    def __init__(self, map_fn, start_fn, pipes_out: List[Send]) -> None:
-        self.pipes_out = pipes_out
+class Mapper(EndOnce):
+    def __init__(self, map_fn, start_fn, pipe_out: Send) -> None:
+        self.pipe_out = pipe_out
         self.map_fn = map_fn
         self.start_fn = start_fn
         self.replicas = int(os.environ.get("N_REPLICAS", 1))
@@ -107,48 +117,45 @@ class MapperScatter(EndOnce):
 
     def step(self, acc, payload) -> object:
         data = payload["data"]
-        send_to_all(self.pipes_out, {**payload, "data": self.map_fn(data)})
+        self.pipe_out.send({**payload, "data": self.map_fn(data)})
         return None
 
     def end_once(self, acc, context):
-        send_to_all(self.pipes_out, {**context, "data": None})
+        self.pipe_out.send({**context, "data": None})
 
     def close(self):
-        for pipe_out in self.pipes_out:
-            pipe_out.close()
+        self.pipe_out.close()
 
 
-class ReducerScatter(EndOnce):
-    def __init__(self, step_fn, pipes_out: List[Send]) -> None:
-        self.pipes_out = pipes_out
+class Reducer(EndOnce):
+    def __init__(self, step_fn, pipe_out: Send) -> None:
+        self.pipe_out = pipe_out
         self.step_fn = step_fn
 
     def step(self, acc, payload) -> object:
         return self.step_fn(acc, payload["data"])
 
     def done(self, acc, context):
-        send_to_all(self.pipes_out, {**context, "data": acc})
+        self.pipe_out.send({**context, "data": acc})
 
     def end_once(self, acc, context):
-        send_to_all(self.pipes_out, {**context, "data": None})
+        self.pipe_out.send({**context, "data": None})
 
     def close(self):
-        for pipe_out in self.pipes_out:
-            pipe_out.close()
+        self.pipe_out.close()
 
 
 class Join:
-    def __init__(self, left_fn, right_fn, join_fn, pipes_out: List[Send]) -> None:
+    def __init__(self, join_fn, pipe_out: Send) -> None:
         self.barrier = Barrier(2)
-        self.left_fn = left_fn
-        self.right_fn = right_fn
         self.join_fn = join_fn
-        self.pipes_out = pipes_out
+        self.pipe_out = pipe_out
         self.send_done = Event()
 
     class Left(EndOnce):
-        def __init__(self, parent) -> None:
+        def __init__(self, parent, step_fn) -> None:
             self.parent = parent
+            self.step_fn = step_fn
 
         def start(self) -> object:
             self.parent.left_acc = {}
@@ -156,10 +163,9 @@ class Join:
 
         def step(self, acc, payload) -> object:
             left_data = payload["data"]
-            self.parent.left_acc = self.parent.left_fn(
+            self.parent.left_acc = self.step_fn(
                 acc,
                 left_data,
-                self.parent.right_acc,
             )
             return self.parent.left_acc
 
@@ -167,15 +173,16 @@ class Join:
             self.parent.barrier.wait()
             acc = self.parent.join_fn(self.parent.left_acc, self.parent.right_acc)
             self.parent.send_done.set()
-            send_to_all(self.parent.pipes_out, {**context, "data": acc})
-            send_to_all(self.parent.pipes_out, {**context, "data": None})
+            self.parent.pipe_out.send({**context, "data": acc})
+            self.parent.pipe_out.send({**context, "data": None})
 
-        def exception(self, ex):
-            sys.exit(1)
+        def close(self):
+            pass
 
     class Right(EndOnce):
-        def __init__(self, parent) -> None:
+        def __init__(self, parent, step_fn) -> None:
             self.parent = parent
+            self.step_fn = step_fn
 
         def start(self) -> object:
             self.parent.right_acc = {}
@@ -183,9 +190,8 @@ class Join:
 
         def step(self, acc, payload) -> object:
             right_data = payload["data"]
-            self.parent.right_acc = self.parent.right_fn(
+            self.parent.right_acc = self.step_fn(
                 acc,
-                self.parent.left_acc,
                 right_data,
             )
             return self.parent.right_acc
@@ -195,18 +201,17 @@ class Join:
             self.parent.send_done.wait()
             self.parent.send_done.clear()
 
-        def exception(self, ex):
-            sys.exit(1)
+        def close(self):
+            pass
 
-    def left(self):
-        return Join.Left(self)
+    def left(self, step_fn):
+        return Join.Left(self, step_fn)
 
-    def right(self):
-        return Join.Right(self)
+    def right(self, step_fn):
+        return Join.Right(self, step_fn)
 
     def close(self):
-        for pipe_out in self.pipes_out:
-            pipe_out.close()
+        self.pipe_out.close()
 
 
 class Notify(Cursor):
@@ -312,3 +317,6 @@ class Persistent(Cursor):
 
     def exception(self, ex):
         return self.cursor.exception(ex)
+
+    def close(self):
+        self.cursor.close()

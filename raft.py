@@ -452,7 +452,7 @@ class Raft:
         if len(self.entries) > 1:
             self.machine.run(self.entries[1 : self.commit_index + 1])
 
-        self.session = requests
+        self.session = requests.session()
         self.lock = RLock()
         self.scheduler = Scheduler()
         self.housekeeper = Scheduler()

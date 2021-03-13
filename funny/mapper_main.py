@@ -1,11 +1,13 @@
-import sys
 from threading import Event, Thread
-from filters import Filter, MapperScatter, Notify
+from filters import Filter, Mapper, Notify
 from health_server import HealthServer
 import pipe
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-class Coordination:
+class BusinessEvent:
     def __init__(self):
         self.business_done = Event()
         self.business_taken = Event()
@@ -34,33 +36,34 @@ class Coordination:
 
 
 def consume_business(coordination):
+    business_cities = Filter(pipe.sub_map_funny_data())
     try:
-        business_cities = Filter(pipe.sub_map_funny_data())
         business_cities.run(Notify(observer=coordination.on_business_done))
+    finally:
         business_cities.close()
-    except:
-        print("ERROR")
-        sys.exit(1)
 
 
 def main():
     healthServer = HealthServer()
-    refiner = Filter(pipe.map_funny())
-    coordination = Coordination()
-    thread = Thread(target=consume_business, args=[coordination])
-    thread.start()
+    consumer = Filter(pipe.map_funny())
+    coordination = BusinessEvent()
+    mapper = Mapper(
+        map_fn=coordination.map_business,
+        start_fn=coordination.prepare,
+        pipe_out=pipe.consume_funny(),
+    )
     try:
-        refiner.run(
-            cursor=MapperScatter(
-                map_fn=coordination.map_business,
-                start_fn=coordination.prepare,
-                pipes_out=[pipe.consume_funny()],
-            )
-        )
-    except:
-        sys.exit(1)
-    thread.join()
-    healthServer.stop()
+        thread = Thread(target=consume_business, args=[coordination])
+        thread.start()
+        consumer.run(mapper)
+        thread.join()
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        mapper.close()
+        consumer.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":

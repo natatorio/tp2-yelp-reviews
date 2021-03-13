@@ -1,7 +1,10 @@
-from filters import Persistent, ReducerScatter, Filter
+from filters import Persistent, Reducer, Filter, count_key
 from health_server import HealthServer
 import pipe
 from pipe import Send
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class UserSend(Send):
@@ -28,44 +31,26 @@ class UserSend(Send):
 
 
 def main():
-    def user_count_5(user_count):
-        return dict([u for u in user_count.items() if u[1] >= 3])
-
-    def user_count_50(user_count):
-        return dict([u for u in user_count.items() if u[1] >= 15])
-
-    def user_count_150(user_count):
-        return (
-            "users_150",
-            dict([u for u in user_count.items() if u[1] >= 100]),
-        )
-
     healthServer = HealthServer()
     counter = Filter(pipe.consume_users())
-
-    def aggregate(acc, data):
-        for elem in data:
-            acc[elem["user_id"]] = acc.get(elem["user_id"], 0) + 1
-        return acc
-
-    reducer = ReducerScatter(
-        step_fn=aggregate,
-        pipes_out=[
-            UserSend()
-            # Formatted(pipe.consume_comment_data(), user_count_5),
-            # Formatted(pipe.consume_star5_data(), user_count_50),
-            # Formatted(pipe.annon(), user_count_150),
-        ],
+    reducer = Reducer(
+        step_fn=count_key("user_id"),
+        pipe_out=UserSend(),
     )
-    counter.run(
-        Persistent(
-            cursor=reducer,
-            name="users",
+    try:
+        counter.run(
+            Persistent(
+                cursor=reducer,
+                name="users",
+            )
         )
-    )
-    counter.close()
-    reducer.close()
-    healthServer.stop()
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        counter.close()
+        reducer.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":

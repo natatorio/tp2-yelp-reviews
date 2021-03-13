@@ -2,10 +2,10 @@ import os
 import time
 import logging
 import docker
-from werkzeug.serving import WSGIRequestHandler
 from flask import Flask
 
 from kevasto import *
+import bjoern
 
 # def manual_test():
 #     response = requests.post("http://localhost:8083/append_entry", json={"a": "a"})
@@ -50,7 +50,8 @@ def main():
         housekeep=True,
     )
     add_raft_routes(app, raft)
-    app.run(host="0.0.0.0", port=80, threaded=True)
+
+    bjoern.run(app, "0.0.0.0", 80)
 
 
 if __name__ == "__main__":

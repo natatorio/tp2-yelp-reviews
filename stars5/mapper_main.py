@@ -1,6 +1,9 @@
-from filters import Filter, MapperScatter
+from filters import Filter, Mapper
 from health_server import HealthServer
 import pipe
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -12,14 +15,21 @@ def main():
         ]
 
     healthServer = HealthServer()
-    mapper = Filter(pipe.map_stars5())
-    cursor = MapperScatter(
+    consumer = Filter(pipe.map_stars5())
+    mapper = Mapper(
         start_fn=lambda: None,
         map_fn=map_stars,
-        pipes_out=[pipe.consume_star5()],
+        pipe_out=pipe.consume_star5(),
     )
-    mapper.run(cursor=cursor)
-    healthServer.stop()
+    try:
+        consumer.run(mapper)
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        consumer.close()
+        mapper.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":

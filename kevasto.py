@@ -253,7 +253,7 @@ def retry(times, func) -> Union[Dict, None]:
 class Client:
     def __init__(self, host="tp3_kevasto_1") -> None:
         self.host = host
-        self.session = requests
+        self.session = requests.session()
 
     def delete(self, bucket, key):
         def __delete__(url):

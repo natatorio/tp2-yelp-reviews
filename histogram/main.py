@@ -1,20 +1,32 @@
-from consumers import CounterBy
+from filters import Filter, Reducer, count_key
 from health_server import HealthServer
 
 import pipe
 from pipe import Formatted
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def main():
     healthServer = HealthServer()
-    counter = CounterBy(
-        pipe.consume_histogram(),
-        [Formatted(pipe.annon(), lambda histogram: ("histogram", histogram))],
-        key_id="weekday",
+    counter = Filter(pipe.consume_histogram())
+    reducer = Reducer(
+        step_fn=count_key("weekday"),
+        pipe_out=Formatted(
+            pipe.annon(),
+            lambda histogram: ("histogram", histogram),
+        ),
     )
-    counter.run()
-    counter.close()
-    healthServer.stop()
+    try:
+        counter.run(reducer)
+    except Exception as e:
+        logger.exception("")
+        raise e
+    finally:
+        reducer.close()
+        counter.close()
+        healthServer.stop()
 
 
 if __name__ == "__main__":
