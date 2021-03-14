@@ -23,7 +23,7 @@ def main():
     mapper = Mapper(
         start_fn=lambda: None,
         map_fn=map_histogram,
-        pipe_out=pipe.consume_histogram(),
+        pipe_out=pipe.histogram_summary(),
     )
     try:
         consumer.run(mapper)

@@ -1,3 +1,4 @@
+from kevasto import Client
 from filters import Persistent, Reducer, Filter, count_key
 from health_server import HealthServer
 import pipe
@@ -9,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 class UserSend(Send):
     def __init__(self) -> None:
-        self.comment = pipe.consume_comment_data()
-        self.stars5 = pipe.consume_star5_data()
-        self.report = pipe.annon()
+        self.comment = pipe.user_count_5()
+        self.stars5 = pipe.user_count_50()
+        self.report = pipe.reports()
 
     def send(self, payload):
         user_count = payload.pop("data", None)
@@ -29,21 +30,26 @@ class UserSend(Send):
         self.stars5.send({**payload, "data": user_count_50})
         self.report.send({**payload, "data": user_count_150})
 
+    def close(self):
+        self.comment.close()
+        self.stars5.close()
+        self.report.close()
+
 
 def main():
     healthServer = HealthServer()
-    counter = Filter(pipe.consume_users())
-    reducer = Reducer(
-        step_fn=count_key("user_id"),
-        pipe_out=UserSend(),
+    counter = Filter(pipe.user_summary())
+    reducer = Persistent(
+        cursor=Reducer(
+            step_fn=count_key("user_id"),
+            pipe_out=UserSend(),
+        ),
+        name="users",
+        client=Client(),
     )
+
     try:
-        counter.run(
-            Persistent(
-                cursor=reducer,
-                name="users",
-            )
-        )
+        counter.run(reducer)
     except Exception as e:
         logger.exception("")
         raise e

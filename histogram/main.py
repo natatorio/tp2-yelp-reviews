@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 
 def main():
     healthServer = HealthServer()
-    counter = Filter(pipe.consume_histogram())
+    counter = Filter(pipe.histogram_summary())
     reducer = Reducer(
         step_fn=count_key("weekday"),
         pipe_out=Formatted(
-            pipe.annon(),
+            pipe.reports(),
             lambda histogram: ("histogram", histogram),
         ),
     )

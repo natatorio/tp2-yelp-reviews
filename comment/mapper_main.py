@@ -22,7 +22,7 @@ def main():
     mapper = Mapper(
         start_fn=lambda: None,
         map_fn=map_user_text,
-        pipe_out=pipe.consume_comment(),
+        pipe_out=pipe.comment_summary(),
     )
     try:
         consumer.run(mapper)

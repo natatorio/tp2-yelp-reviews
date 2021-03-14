@@ -28,9 +28,9 @@ def main():
         )
 
     healthServer = HealthServer()
-    left_consumer = Filter(pipe.consume_comment())
-    right_consumer = Filter(pipe.consume_comment_data())
-    joint = Join(join_fn=join, pipe_out=pipe.annon())
+    left_consumer = Filter(pipe.comment_summary())
+    right_consumer = Filter(pipe.user_count_5())
+    joint = Join(join_fn=join, pipe_out=pipe.reports())
 
     def consume_left():
         left_mapper = joint.left(user_comment_counter)

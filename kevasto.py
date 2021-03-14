@@ -236,6 +236,8 @@ def retry(times, func) -> Union[Dict, None]:
         try:
             done, res = func()
             if done:
+                if i > 0:
+                    logger.info("success after %s attempts", i)
                 return res
         except Exception as e:
             logger.exception("Retry")

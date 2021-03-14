@@ -37,7 +37,7 @@ def consume_reviews():
         map_fn=lambda x: x,
         pipe_out=Scatter(
             [
-                pipe.Formatted(pipe.consume_users(), users),
+                pipe.Formatted(pipe.user_summary(), users),
                 pipe.Formatted(pipe.map_comment(), comment),
                 pipe.Formatted(pipe.map_funny(), funny),
                 pipe.Formatted(pipe.map_histogram(), histogram),
@@ -64,7 +64,7 @@ def consume_business():
     mapper = Mapper(
         start_fn=lambda: None,
         map_fn=route_business,
-        pipe_out=pipe.consume_business(),
+        pipe_out=pipe.business_cities_summary(),
     )
     try:
         consumer.run(mapper)

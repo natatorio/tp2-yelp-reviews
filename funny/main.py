@@ -1,3 +1,4 @@
+from kevasto import Client
 from filters import Filter, Persistent, Reducer, count_key
 from health_server import HealthServer
 
@@ -23,13 +24,14 @@ def main():
         )
 
     healthServer = HealthServer()
-    consumer = Filter(pipe_in=pipe.consume_funny())
+    consumer = Filter(pipe_in=pipe.funny_summary())
     reducer = Persistent(
-        name="funny",
         cursor=Reducer(
             step_fn=count_key("city"),
-            pipe_out=Formatted(pipe.annon(), topTenFunnyPerCity),
+            pipe_out=Formatted(pipe.reports(), topTenFunnyPerCity),
         ),
+        name="funny",
+        client=Client(),
     )
     try:
         consumer.run(reducer)

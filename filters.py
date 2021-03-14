@@ -1,3 +1,4 @@
+from kevasto import Client
 import os
 import logging
 from threading import Barrier, Event
@@ -40,6 +41,9 @@ class Cursor:
     def exception(self, ex):
         raise ex
 
+    def close(self):
+        pass
+
 
 class Filter:
     def __init__(self, pipe_in: Pipe):
@@ -65,8 +69,6 @@ class Filter:
                         acc = cursor.start()
             except Exception as e:
                 cursor.exception(e)
-            finally:
-                self.pipe_in.cancel()
         logger.info("done consuming %s", self.pipe_in)
 
     def close(self):
@@ -79,38 +81,35 @@ class EndOnce(Cursor):
     def setup(self, caller) -> object:
         self.pipe_in = caller.pipe_in
 
-    def end(self, acc, context):
-        self.done(acc, context)
-        count_down = context.pop("count_down", self.replicas)
+    def end(self, acc, payload):
+        self.done(acc, payload)
+        count_down = payload.pop("count_down", self.replicas)
         if count_down > 1:
             logger.info("count_down %s %s", count_down, self.pipe_in)
             self.pipe_in.send(
                 {
-                    **context,
+                    **payload,
                     "data": None,
                     "count_down": count_down - 1,
                 }
             )
         else:
-            self.end_once(acc, context)
-            logger.info("batch done: %s %s", self.pipe_in, context["session_id"])
+            self.end_once(acc, payload)
+            logger.info("batch done: %s %s", self.pipe_in, payload["session_id"])
 
-    def end_once(self, acc, context):
+    def end_once(self, acc, payload):
         return
 
-    def done(self, acc, context):
+    def done(self, acc, payload):
         return
 
 
 class Mapper(EndOnce):
-    def __init__(self, map_fn, start_fn, pipe_out: Send) -> None:
+    def __init__(self, map_fn, pipe_out: Send, start_fn=lambda: None) -> None:
         self.pipe_out = pipe_out
         self.map_fn = map_fn
         self.start_fn = start_fn
         self.replicas = int(os.environ.get("N_REPLICAS", 1))
-
-    def setup(self, caller) -> object:
-        self.pipe_in = caller.pipe_in
 
     def start(self) -> object:
         return self.start_fn()
@@ -118,10 +117,10 @@ class Mapper(EndOnce):
     def step(self, acc, payload) -> object:
         data = payload["data"]
         self.pipe_out.send({**payload, "data": self.map_fn(data)})
-        return None
+        return acc
 
-    def end_once(self, acc, context):
-        self.pipe_out.send({**context, "data": None})
+    def end_once(self, acc, payload):
+        self.pipe_out.send({**payload, "data": None})
 
     def close(self):
         self.pipe_out.close()
@@ -135,11 +134,11 @@ class Reducer(EndOnce):
     def step(self, acc, payload) -> object:
         return self.step_fn(acc, payload["data"])
 
-    def done(self, acc, context):
-        self.pipe_out.send({**context, "data": acc})
+    def done(self, acc, payload):
+        self.pipe_out.send({**payload, "data": acc})
 
-    def end_once(self, acc, context):
-        self.pipe_out.send({**context, "data": None})
+    def end_once(self, acc, payload):
+        self.pipe_out.send({**payload, "data": None})
 
     def close(self):
         self.pipe_out.close()
@@ -169,12 +168,12 @@ class Join:
             )
             return self.parent.left_acc
 
-        def end_once(self, left_data, context):
+        def end_once(self, left_data, payload):
             self.parent.barrier.wait()
             acc = self.parent.join_fn(self.parent.left_acc, self.parent.right_acc)
             self.parent.send_done.set()
-            self.parent.pipe_out.send({**context, "data": acc})
-            self.parent.pipe_out.send({**context, "data": None})
+            self.parent.pipe_out.send({**payload, "data": acc})
+            self.parent.pipe_out.send({**payload, "data": None})
 
         def close(self):
             pass
@@ -196,7 +195,7 @@ class Join:
             )
             return self.parent.right_acc
 
-        def end_once(self, right_data, context):
+        def end_once(self, right_data, payload):
             self.parent.barrier.wait()
             self.parent.send_done.wait()
             self.parent.send_done.clear()
@@ -221,32 +220,25 @@ class Notify(Cursor):
     def step(self, acc, payload) -> object:
         return payload["data"]
 
-    def end(self, acc, context):
+    def end(self, acc, payload):
         self.observer(acc)
 
 
-from kevasto import Client
-
-
 class Persistent(Cursor):
-    processed: set
-
-    def __init__(self, cursor, name) -> None:
+    def __init__(self, name: str, cursor: Cursor, client: Client) -> None:
         self.cursor = cursor
-        self.db = Client()
+        self.db = client
         self.name = name
-        self.batch_done = set()
 
     def setup(self, caller):
         return self.cursor.setup(caller)
 
-    def quit(self, acc, context) -> bool:
-        return self.cursor.quit(acc, context)
+    def quit(self, acc, payload) -> bool:
+        return self.cursor.quit(acc, payload)
 
     def start_from_scratch(self):
         self.seq_num = 0
         self.db.log_drop(self.name, None)
-        self.processed = set()
         acc = self.cursor.start()
         self.db.put(
             self.name,
@@ -262,12 +254,7 @@ class Persistent(Cursor):
         self.seq_num = state["seq_num"]
         acc = state["acc"]
         items = self.db.log_fetch(self.name, self.seq_num)
-        processed = self.db.get(self.name, "processed")
-        if processed is None:
-            processed = []
-        self.processed = set(processed)
         for item in items:
-            self.processed.add(item["id"])
             if item.get("data") is None:
                 self.end(acc, item)
                 acc = self.start_from_scratch()
@@ -278,21 +265,17 @@ class Persistent(Cursor):
 
     def start(self) -> object:
         state = cast(Dict, self.db.get(self.name, "state"))
+        logger.info("state %s", state)
         if state is None:
             return self.start_from_scratch()
         else:
             return self.start_from_checkpoint(state)
 
     def step(self, acc, payload) -> object:
-        if payload["session_id"] in self.batch_done:
-            return acc
-        if payload["id"] in self.processed:
-            return acc
         self.db.log_append(self.name, self.seq_num, payload)
-        self.processed.add(payload["id"])
         acc = self.cursor.step(acc, payload)
         self.seq_num += 1
-        if self.seq_num % 100 == 0:
+        if self.seq_num % 250 == 0:
             payload.pop("data", None)
             self.db.put(
                 self.name,
@@ -306,17 +289,56 @@ class Persistent(Cursor):
         return acc
 
     def end(self, acc, payload):
-        # if payload["session_id"] in self.batch_done:
         self.db.log_append(self.name, self.seq_num, payload)
         self.cursor.end(acc, payload)
         self.db.delete(
             self.name,
             "state",
         )
-        self.batch_done.add(payload["session_id"])
 
     def exception(self, ex):
         return self.cursor.exception(ex)
 
     def close(self):
         self.cursor.close()
+
+
+class Dedup:
+    def __init__(self, name: str, cursor: Cursor, client: Client) -> None:
+        self.cursor = cursor
+        self.batch_done = set()
+        self.processed = set()
+        self.db = client
+        self.name = name
+
+    def setup(self, caller):
+        return self.cursor.setup(caller)
+
+    def start(self) -> object:
+        processed = self.db.get(self.name, "processed")
+        if processed is None:
+            processed = []
+        self.processed = set(processed)
+        return self.cursor.start()
+
+    def step(self, acc, payload) -> object:
+        if payload["id"] in self.processed:
+            return acc
+        if payload["session_id"] in self.batch_done:
+            return acc
+        acc = self.cursor.step(acc, payload)
+        self.processed.add(payload["id"])
+        return acc
+
+    def end(self, acc, payload):
+        self.batch_done.add(payload["session_id"])
+        return self.cursor.end(acc, payload)
+
+    def quit(self, acc, payload) -> bool:
+        return self.cursor.quit(acc, payload)
+
+    def exception(self, ex):
+        return self.cursor.exception(ex)
+
+    def close(self):
+        return self.cursor.close()

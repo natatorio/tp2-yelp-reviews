@@ -164,11 +164,13 @@ class Pipe(Recv, Exchange):
     def recv(self, auto_ack=False):
         if self.connection is None:
             self.connection = Connection()
-        if self.channel is None:
-            self.channel = self.connection.channel()
         i = 0
         while i < RETRIES:
             try:
+                if self.channel is None:
+                    self.channel = self.connection.channel()
+                self.channel = self.connection.channel()
+                self.channel.basic_qos(prefetch_count=1)
                 for method, _, body in self.channel.consume(
                     self.queue, auto_ack=auto_ack
                 ):
@@ -176,15 +178,12 @@ class Pipe(Recv, Exchange):
                         json.loads(body.decode("utf-8")),
                         lambda: self.channel.basic_ack(method.delivery_tag),
                     )
+                self.channel.cancel()
                 return
             except Exception as e:
                 logger.exception(f"retry connection {str(e)}")
-                self.channel = self.connection.channel()
             i += 1
         raise Exception("Couldn't instantiate channel")
-
-    def cancel(self):
-        self.channel.cancel()
 
     def close(self):
         if self.channel is not None:
@@ -208,71 +207,146 @@ class Pipe(Recv, Exchange):
 
 
 # routed by reviews
-def consume_business():
-    return Pipe(exchange="reviews", routing_key="business", queue="business.CONSUME")
+def business_cities_summary():
+    return Pipe(
+        exchange="reviews",
+        routing_key="business.cities",
+        queue="business.cities.summary",
+    )
 
 
-def consume_comment():
-    return Pipe(exchange="reviews", routing_key="comment", queue="comment.CONSUME")
+def comment_summary():
+    return Pipe(
+        exchange="reviews",
+        routing_key="comment",
+        queue="comment.summary",
+    )
 
 
-def consume_comment_data():
-    return Pipe(exchange="reviews", routing_key="comment.DATA", queue="comment.DATA")
+def user_count_5():
+    return Pipe(
+        exchange="reviews",
+        routing_key="user5.comment",
+        queue="user5.comment",
+    )
 
 
-def consume_funny():
-    return Pipe(exchange="reviews", routing_key="funny", queue="funny.CONSUME")
+def funny_summary():
+    return Pipe(
+        exchange="reviews",
+        routing_key="funny",
+        queue="funny.summary",
+    )
 
 
-def consume_histogram():
-    return Pipe(exchange="reviews", routing_key="histogram", queue="histogram.CONSUME")
+def histogram_summary():
+    return Pipe(
+        exchange="reviews",
+        routing_key="histogram",
+        queue="histogram.summary",
+    )
 
 
-def consume_star5():
-    return Pipe(exchange="reviews", routing_key="star5", queue="star5.CONSUME")
+def star5_summary():
+    return Pipe(
+        exchange="reviews",
+        routing_key="star5",
+        queue="star5.summary",
+    )
 
 
-def consume_star5_data():
-    return Pipe(exchange="reviews", routing_key="star5.DATA", queue="star5.DATA")
+def user_count_50():
+    return Pipe(
+        exchange="reviews",
+        routing_key="user50.star5",
+        queue="user50.star5",
+    )
 
 
-def consume_users():
-    return Pipe(exchange="reviews", routing_key="users", queue="users.CONSUME")
+def user_summary():
+    return Pipe(
+        exchange="reviews",
+        routing_key="users",
+        queue="users.summary",
+    )
 
 
 # routed by map
-def pub_funny_data():
-    return Exchange(exchange="map", routing_key="funny.DATA")
+def pub_funny_business_cities():
+    return Exchange(
+        exchange="map",
+        routing_key="funny.business_cities",
+    )
 
 
-def sub_map_funny_data():
-    return Pipe(exchange="map", routing_key="funny.DATA", queue="")
+def sub_funny_business_cities():
+    return Pipe(
+        exchange="map",
+        routing_key="funny.business_cities",
+        queue="",
+    )
 
 
 def map_funny():
-    return Pipe(exchange="map", routing_key="funny", queue="funny.MAP_QUEUE")
+    return Pipe(
+        exchange="map",
+        routing_key="funny.reviews",
+        queue="funny",
+    )
 
 
 def map_comment():
-    return Pipe(exchange="map", routing_key="comment", queue="comment.MAP_QUEUE")
+    return Pipe(
+        exchange="map",
+        routing_key="comment",
+        queue="comment",
+    )
 
 
 def map_histogram():
-    return Pipe(exchange="map", routing_key="histogram", queue="histogram.MAP_QUEUE")
+    return Pipe(
+        exchange="map",
+        routing_key="histogram",
+        queue="histogram",
+    )
 
 
 def map_stars5():
-    return Pipe(exchange="map", routing_key="stars5", queue="stars5.MAP_QUEUE")
+    return Pipe(
+        exchange="map",
+        routing_key="stars5",
+        queue="stars5",
+    )
 
 
 # routed by data
 def data_business():
-    return Pipe(exchange="data", routing_key="business", queue="business.QUEUE")
+    return Pipe(
+        exchange="data",
+        routing_key="business",
+        queue="business",
+    )
 
 
 def data_review():
-    return Pipe(exchange="data", routing_key="review", queue="review.QUEUE")
+    return Pipe(
+        exchange="data",
+        routing_key="review",
+        queue="review",
+    )
 
 
-def annon():
-    return Pipe(exchange="", routing_key="reports", queue="reports")
+def reports():
+    return Pipe(
+        exchange="",
+        routing_key="reports",
+        queue="reports",
+    )
+
+
+def pub_sub_control():
+    return Pipe(
+        exchange="",
+        routing_key="control",
+        queue="",
+    )

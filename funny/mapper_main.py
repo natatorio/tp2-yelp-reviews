@@ -36,7 +36,7 @@ class BusinessEvent:
 
 
 def consume_business(coordination):
-    business_cities = Filter(pipe.sub_map_funny_data())
+    business_cities = Filter(pipe.sub_funny_business_cities())
     try:
         business_cities.run(Notify(observer=coordination.on_business_done))
     finally:
@@ -50,7 +50,7 @@ def main():
     mapper = Mapper(
         map_fn=coordination.map_business,
         start_fn=coordination.prepare,
-        pipe_out=pipe.consume_funny(),
+        pipe_out=pipe.funny_summary(),
     )
     try:
         thread = Thread(target=consume_business, args=[coordination])

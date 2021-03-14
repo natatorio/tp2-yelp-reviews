@@ -19,7 +19,7 @@ def main():
     mapper = Mapper(
         start_fn=lambda: None,
         map_fn=map_stars,
-        pipe_out=pipe.consume_star5(),
+        pipe_out=pipe.star5_summary(),
     )
     try:
         consumer.run(mapper)

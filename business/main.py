@@ -13,10 +13,10 @@ def main():
         return acc
 
     healthServer = HealthServer()
-    consumer = Filter(pipe.consume_business())
+    consumer = Filter(pipe.business_cities_summary())
     mapper = Reducer(
         step_fn=build_business_city_dict,
-        pipe_out=pipe.pub_funny_data(),
+        pipe_out=pipe.pub_funny_business_cities(),
     )
     try:
         consumer.run(mapper)
