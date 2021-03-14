@@ -1,5 +1,6 @@
 import json
 import logging
+from threading import Condition
 from typing import List
 
 import pika
@@ -350,3 +351,26 @@ def pub_sub_control():
         routing_key="control",
         queue="",
     )
+
+
+class Control:
+    def __init__(self) -> None:
+        self.control = pub_sub_control()
+        self.condition = Condition()
+        self.payload = None
+        self.quit = False
+
+    def listen(self):
+        for payload, _ in self.control.recv(auto_ack=True):
+            if payload["kind"] == "ack":
+                with self.condition:
+                    self.payload = payload
+                    self.condition.notify_all()
+
+    def wait(self, op_name):
+        self.control.send({"kind": "req", "name": op_name})
+        while self.quit != True:
+            with self.condition:
+                self.condition.wait()
+                if self.payload["name"] == op_name:
+                    return self.payload
