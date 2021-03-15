@@ -28,7 +28,7 @@ services:
       context: .
     entrypoint: python3 -m watchdog.main
     environment:
-      - N_REPLICAS=2
+      - N_REPLICAS=7
       - IP_PREFIX=tp3
       - IP_ROUTER=router
       - N_ROUTER=2
