@@ -9,6 +9,44 @@ services:
     networks:
       - reviews_network
 
+  control:
+    image: reviews
+    build:
+      context: .
+    entrypoint: python3 -m control_server
+    environment:
+      - N_REPLICAS=1
+      - IP_PREFIX=tp3
+      - IP_ROUTER=router
+      - N_ROUTER=2
+      - IP_BUSSINESS=business
+      - N_BUSSINESS=1
+      - IP_USERS=users
+      - N_USERS=1
+      - IP_STARS5=stars5
+      - N_STARS5=1
+      - IP_HISTOGRAM=histogram
+      - N_HISTOGRAM=1
+      - IP_COMMENT=comment
+      - N_COMMENT=1
+      - IP_FUNNY=funny
+      - N_FUNNY=1
+      - IP_COMMENT_MAPPER=comment_mapper
+      - N_COMMENT_MAPPER=2
+      - IP_STARS5_MAPPER=stars5_mapper
+      - N_STARS5_MAPPER=2
+      - IP_HISTOGRAM_MAPPER=histogram_mapper
+      - N_HISTOGRAM_MAPPER=2
+      - IP_FUNNY_MAPPER=funny_mapper
+      - N_FUNNY_MAPPER=2
+      - IP_KEVASTO=kevasto
+      - N_KEVASTO=3
+    networks:
+      - reviews_network
+    depends_on:
+      - rabbitmq
+      - kevasto
+
   kevasto:
     image: reviews
     build:
@@ -54,6 +92,8 @@ services:
       - N_FUNNY_MAPPER=2
       - IP_KEVASTO=kevasto
       - N_KEVASTO=3
+      - IP_CONTROL=control
+      - N_CONTROL=1
     networks:
       - reviews_network
     volumes:

@@ -11,6 +11,10 @@ logging.basicConfig()
 logger = logging.getLogger("WatchdogSideCar")
 logger.setLevel(logging.INFO)
 
+def get_my_ip():
+    client = docker.from_env()
+    container = client.containers.get(os.environ["HOSTNAME"])
+    return container.name
 
 def revive(ip):
     logger.info("Process %s has died. Starting it up again...", ip)
@@ -53,16 +57,13 @@ class HealthServer:
     def stop(self):
         exit(0)
 
-
 class LeaderServer(HealthServer):
     def __init__(self, poolId):
         self.leaderIp = [None]
         self.resolved = threading.Event()
         self.requested = threading.Event()
         self.poolId = poolId
-        client = docker.from_env()
-        container = client.containers.get(os.environ["HOSTNAME"])
-        self.myIp = container.name
+        self.myIp = get_my_ip()
         self.app = Flask(__name__)
         log = logging.getLogger("werkzeug")
         log.setLevel(logging.INFO)
@@ -81,12 +82,6 @@ class LeaderServer(HealthServer):
         super().run_server()
 
     def __route_leader_endpoints(self):
-        @self.app.route("/id")
-        def get_id():
-            return make_response(
-                jsonify(id=os.environ["HOSTNAME"], leader=self.iAmLeader[0]), 200
-            )
-
         @self.app.route("/election", methods = ["POST"])
         def election_msg():
             self.requested.set()
