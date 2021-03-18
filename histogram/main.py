@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def main():
     with HealthServer():
         control = pipe.pub_sub_control()
-        for payload, _ in control.recv(auto_ack=True):
+        for payload, ack in control.recv():
             logger.info("batch %s", payload)
             reducer(
                 pipe_in=pipe.histogram_summary(),
@@ -19,8 +19,9 @@ def main():
                     pipe.reports(),
                     lambda histogram: ("histogram", histogram),
                 ),
-                logger=logger,
+                batch_id=payload["session_id"],
             )
+            ack()
 
 
 if __name__ == "__main__":

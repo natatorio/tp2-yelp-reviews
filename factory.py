@@ -1,12 +1,22 @@
 import os
 from threading import Thread
+
+from pika.exceptions import ChannelClosed
 from kevasto import Client
-from filters import Filter, Join, Mapper, Notify, Persistent, Reducer
+from filters import Filter, Join, Keep, Mapper, Notify, Persistent, Reducer
 import logging
 import docker
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+def node_name():
+    client = docker.from_env()
+    container = client.containers.get(os.environ["HOSTNAME"])
+    host_name = container.name
+    client.close()
+    return host_name
 
 
 def count_key(key):
@@ -22,95 +32,106 @@ def use_value(acc, right):
     return right
 
 
+def tolerant(cursor, batch_id):
+    return Keep(
+        Persistent(
+            cursor=cursor,
+            client=Client(),
+            name=node_name(),
+        ),
+        batch_id,
+    )
+
+
 def mapper(
     pipe_in,
     pipe_out,
     map_fn,
+    batch_id,
     start_fn=lambda: None,
-    logger=logger,
 ):
-    logger.setLevel(logging.INFO)
-    consumer = Filter(pipe_in)
-    mapper = Mapper(
-        start_fn=start_fn,
-        map_fn=map_fn,
-        pipe_out=pipe_out,
-    )
-    try:
-        logger.info("waiting")
-        consumer.run(mapper)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        consumer.close()
+    with Filter(pipe_in) as consumer:
+        consumer.run(
+            Keep(
+                Mapper(
+                    start_fn=start_fn,
+                    map_fn=map_fn,
+                    pipe_out=pipe_out,
+                ),
+                batch_id,
+            )
+        )
 
 
-def sink(pipe_in, observer, logger=logger):
-    client = docker.from_env()
-    container = client.containers.get(os.environ["HOSTNAME"])
-    host_name = container.name
-    client.close()
-    consumer = Filter(pipe_in)
-    reducer = Persistent(
-        cursor=Notify(observer=observer),
-        client=Client(),
-        name=host_name,
-    )
-    try:
-        consumer.run(reducer)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        consumer.close()
+def sink(
+    pipe_in,
+    observer,
+    batch_id,
+):
+    with Filter(pipe_in) as consumer:
+        consumer.run(tolerant(Notify(observer=observer), batch_id))
 
 
-def reducer(pipe_in, pipe_out, step_fn, logger=logger):
-    client = docker.from_env()
-    container = client.containers.get(os.environ["HOSTNAME"])
-    host_name = container.name
-    client.close()
-    consumer = Filter(pipe_in)
-    reducer = Persistent(
-        cursor=Reducer(
-            step_fn=step_fn,
-            pipe_out=pipe_out,
-        ),
-        client=Client(),
-        name=host_name,
-    )
-    try:
-        consumer.run(reducer)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        consumer.close()
+def reducer(pipe_in, pipe_out, step_fn, batch_id):
+    with Filter(pipe_in) as consumer:
+        consumer.run(
+            tolerant(
+                Reducer(
+                    step_fn=step_fn,
+                    pipe_out=pipe_out,
+                ),
+                batch_id,
+            )
+        )
 
 
-def joiner(pipe_left, left_fn, pipe_right, right_fn, pipe_out, join_fn):
-    left_consumer = Filter(pipe_left)
-    right_consumer = Filter(pipe_right)
+def joiner(
+    pipe_left,
+    left_fn,
+    pipe_right,
+    right_fn,
+    pipe_out,
+    join_fn,
+    batch_id,
+):
     joint = Join(join_fn, pipe_out)
 
     def consume_left():
-        left_mapper = joint.left(left_fn)
         try:
-            left_consumer.run(cursor=left_mapper)
-        finally:
-            left_consumer.close()
+            with Filter(pipe_left) as consumer:
+                consumer.run(
+                    tolerant(
+                        joint.left(left_fn),
+                        batch_id,
+                    )
+                )
+            return
+        # except ChannelClosed as e:
+        # logger.exception(str(e))
+        except Exception as e:
+            logger.exception(str(e))
+            os._exit(1)
 
-    right_mapper = joint.right(right_fn)
-    try:
-        thread = Thread(target=consume_left)
-        thread.start()
+    def consume_right():
+        try:
+            with Filter(pipe_right) as consumer:
+                consumer.run(
+                    tolerant(
+                        joint.right(right_fn),
+                        batch_id,
+                    )
+                )
+            return
+        # except ChannelClosed as e:
+        # logger.exception(str(e))
+        except Exception as e:
+            logger.exception(str(e))
+            os._exit(1)
 
-        right_consumer.run(right_mapper)
+    thread = Thread(target=consume_left, daemon=True)
+    thread.start()
+    consume_right()
+    thread.join()
 
-        thread.join()
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        right_consumer.close()
+
+import debug

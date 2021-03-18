@@ -38,14 +38,15 @@ class UserSend(Send):
 def main():
     with HealthServer():
         control = pipe.pub_sub_control()
-        for payload, _ in control.recv(auto_ack=True):
+        for payload, ack in control.recv():
             logger.info("batch %s", payload)
             reducer(
                 pipe_in=pipe.user_summary(),
                 step_fn=count_key("user_id"),
                 pipe_out=UserSend(),
-                logger=logger,
-            ),
+                batch_id=payload["session_id"],
+            )
+            ack()
 
 
 if __name__ == "__main__":

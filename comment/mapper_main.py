@@ -19,14 +19,15 @@ def main():
 
     with HealthServer():
         control = pipe.pub_sub_control()
-        for payload, _ in control.recv(auto_ack=True):
+        for payload, ack in control.recv():
             logger.info("batch %s", payload)
             mapper(
                 pipe_in=pipe.map_comment(),
                 pipe_out=pipe.comment_summary(),
                 map_fn=map_user_text,
-                logger=logger,
+                batch_id=payload["session_id"],
             )
+            ack()
 
 
 if __name__ == "__main__":

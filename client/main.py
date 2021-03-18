@@ -96,7 +96,8 @@ def main():
 
     logger.info("waiting report")
     report = {}
-    for payload, _ in reports.recv(auto_ack=True):
+    for payload, ack in reports.recv():
+        ack()
         if payload["data"]:
             key, val = payload["data"]
             report[key] = val

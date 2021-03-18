@@ -41,7 +41,10 @@ class Connection:
             try:
                 if self.local.connection.is_closed:
                     self.local.connection = open_connection()
-                return self.local.connection.channel()
+                chan = self.local.connection.channel()
+                if os.environ.get("PREFETCH_COUNT"):
+                    chan.basic_qos(prefetch_count=int(os.environ["PREFETCH_COUNT"]))
+                return chan
             except Exception as e:
                 logger.exception(f"while trying to get channel {str(e)}")
             i += 1
@@ -91,6 +94,7 @@ class Exchange(Send):
     def close(self):
         if self.channel is not None:
             self.channel.close()
+            self.channel = None
 
 
 class Formatted(Send):
@@ -177,11 +181,15 @@ class Pipe(Recv, Exchange):
                 self.channel.cancel()
 
     def close(self):
-        if self.channel is not None:
+        if self.channel and self.channel.is_open:
             try:
                 self.channel.close()
+                self.channel = None
             except:
                 logger.error("failed to close channel")
+        self.unbind()
+
+    def unbind(self):
         if self.remove_queue:
             with lease_channel() as channel:
                 channel.queue_unbind(
@@ -191,14 +199,12 @@ class Pipe(Recv, Exchange):
                 )
                 channel.queue_delete(queue=self.queue)
 
-    def cancel(self):
-        self.channel.cancel()
-
     def __enter__(self):
         return self
 
-    def __exit__(self):
+    def __exit__(self, ex_type, ex, trace):
         self.close()
+        return False
 
 
 # routed by reviews

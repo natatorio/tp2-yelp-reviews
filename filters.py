@@ -51,6 +51,15 @@ class Filter:
     def close(self):
         self.pipe_in.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, ex_type, ex, trace):
+        self.close()
+        if ex:
+            logger.exception(str(ex))
+        return False
+
 
 class EndOnce(Cursor):
     replicas = int(os.environ.get("N_REPLICAS", 1))
@@ -202,6 +211,9 @@ class Notify(Cursor):
         self.observer(acc)
 
 
+CHECKPOINT = int(os.environ.get("CHECKPOINT", 100))
+
+
 class Persistent(Cursor):
     def __init__(self, name: str, cursor: Cursor, client: Client) -> None:
         self.cursor = cursor
@@ -240,7 +252,7 @@ class Persistent(Cursor):
 
     def start(self) -> object:
         state = cast(Dict, self.db.get(self.name, "state"))
-        logger.info("state %s", state)
+        logger.debug("state %s", state)
         if state is None:
             return self.start_from_scratch()
         else:
@@ -249,7 +261,7 @@ class Persistent(Cursor):
     def step(self, acc, payload) -> object:
         self.db.log_append(self.name, self.seq_num, payload)
         acc = self.cursor.step(acc, payload)
-        if self.seq_num % 100 == 0:
+        if self.seq_num % CHECKPOINT == 0:
             payload.pop("data", None)
             self.db.put(
                 self.name,
@@ -278,7 +290,6 @@ class Persistent(Cursor):
 class Dedup:
     def __init__(self, name: str, cursor: Cursor, client: Client) -> None:
         self.cursor = cursor
-        self.batch_done = set()
         self.processed = set()
         self.db = client
         self.name = name + "_processed"
@@ -296,17 +307,41 @@ class Dedup:
     def step(self, acc, payload) -> object:
         if payload["id"] in self.processed:
             return acc
-        if payload["session_id"] in self.batch_done:
-            return acc
         acc = self.cursor.step(acc, payload)
         self.processed.add(payload["id"])
         self.db.log_append(self.name, None, payload["id"])
         return acc
 
     def end(self, acc, payload):
-        self.batch_done.add(payload["session_id"])
         self.cursor.end(acc, payload)
         self.db.log_drop(self.name, None)
+        self.is_done = self.cursor.is_done
+
+    def close(self):
+        self.cursor.close()
+
+
+class Keep(Cursor):
+    is_done = False
+
+    def __init__(self, cursor, batch_id) -> None:
+        super().__init__()
+        self.cursor = cursor
+        self.batch_id = batch_id
+
+    def setup(self, caller):
+        return self.cursor.setup(caller)
+
+    def start(self) -> object:
+        return self.cursor.start()
+
+    def step(self, acc, payload) -> object:
+        if self.batch_id == payload["session_id"]:
+            return self.cursor.step(acc, payload)
+        return acc
+
+    def end(self, acc, context):
+        self.cursor.end(acc, context)
         self.is_done = self.cursor.is_done
 
     def close(self):

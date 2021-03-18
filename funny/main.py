@@ -23,14 +23,15 @@ def main():
 
     with HealthServer():
         control = pipe.pub_sub_control()
-        for payload, _ in control.recv(auto_ack=True):
+        for payload, ack in control.recv():
             logger.info("batch %s", payload)
             reducer(
                 pipe_in=pipe.funny_summary(),
                 step_fn=count_key("city"),
                 pipe_out=Formatted(pipe.reports(), topTenFunnyPerCity),
-                logger=logger,
+                batch_id=payload["session_id"],
             )
+            ack()
 
 
 if __name__ == "__main__":

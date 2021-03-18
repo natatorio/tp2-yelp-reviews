@@ -23,7 +23,6 @@ class Scheduler:
         self.event.set()
 
     def run(self):
-        # print("stated")
         # basado en ThreadSchedulerExecutor de java
         timeout = None
         while not self.is_shutdown:
@@ -47,40 +46,3 @@ class Scheduler:
                     0,
                     (self.tasks[0][0] - datetime.now()).total_seconds(),
                 )
-            # print("wait", timeout)
-        # print("shutdown")
-
-
-# s = Scheduler()
-# def re_schedule():
-#     print("hola")
-#     s.schedule(
-#         timedelta(milliseconds=1000),
-#         re_schedule,
-#     )
-
-
-class Test:
-    def __init__(self) -> None:
-        self.lock = RLock()
-        self.scheduler = Scheduler()
-
-    def ping(self, i):
-        print("ping.enter")
-        with self.lock:
-            print("ping.adquire", i)
-            if i % 10 == 0:
-                self.scheduler.schedule(timedelta(milliseconds=800), self.hello)
-                time.sleep(0.5)
-
-    def hello(self):
-        print("hello.enter")
-        with self.lock:
-            print("hello.adquired")
-            time.sleep(0.5)
-
-
-def run():
-    test = Test()
-    for i in range(1, 50):
-        test.ping(i)

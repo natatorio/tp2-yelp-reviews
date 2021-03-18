@@ -1,18 +1,8 @@
-import code, traceback, signal
+import signal, faulthandler
 
 
-def debug(sig, frame):
-    """Interrupt running process, and provide a python prompt for
-    interactive debugging."""
-    d = {"_frame": frame}  # Allow access to frame object.
-    d.update(frame.f_globals)  # Unless shadowed by global
-    d.update(frame.f_locals)
-
-    i = code.InteractiveConsole(d)
-    message = "Signal received : entering python shell.\nTraceback:\n"
-    message += "".join(traceback.format_stack(frame))
-    i.interact(message)
+def dump_traceback(sig, frame):
+    faulthandler.dump_traceback()
 
 
-print("Debug")
-signal.signal(signal.SIGUSR1, debug)  # Register handler
+signal.signal(signal.SIGUSR1, dump_traceback)  # Register handler

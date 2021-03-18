@@ -15,7 +15,7 @@ def main():
 
     with HealthServer():
         control = pipe.pub_sub_control()
-        for payload, _ in control.recv(auto_ack=True):
+        for payload, ack in control.recv():
             logger.info("batch %s", payload)
             joiner(
                 pipe_left=pipe.star5_summary(),
@@ -24,7 +24,9 @@ def main():
                 right_fn=use_value,
                 join_fn=join,
                 pipe_out=pipe.reports(),
+                batch_id=payload["session_id"],
             )
+            ack()
 
 
 if __name__ == "__main__":
