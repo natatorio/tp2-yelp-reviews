@@ -1,3 +1,4 @@
+from health_server import HealthServer
 import pipe
 from pipe import Send
 import logging
@@ -35,15 +36,16 @@ class UserSend(Send):
 
 
 def main():
-    control = pipe.pub_sub_control()
-    for payload, _ in control.recv(auto_ack=True):
-        logger.info("batch %s", payload)
-        reducer(
-            pipe_in=pipe.user_summary(),
-            step_fn=count_key("user_id"),
-            pipe_out=UserSend(),
-            logger=logger,
-        ),
+    with HealthServer():
+        control = pipe.pub_sub_control()
+        for payload, _ in control.recv(auto_ack=True):
+            logger.info("batch %s", payload)
+            reducer(
+                pipe_in=pipe.user_summary(),
+                step_fn=count_key("user_id"),
+                pipe_out=UserSend(),
+                logger=logger,
+            ),
 
 
 if __name__ == "__main__":

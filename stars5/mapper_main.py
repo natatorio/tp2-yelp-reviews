@@ -1,3 +1,4 @@
+from health_server import HealthServer
 import pipe
 import logging
 from factory import mapper
@@ -13,15 +14,16 @@ def main():
             if r["stars"] == 5.0
         ]
 
-    control = pipe.pub_sub_control()
-    for payload, _ in control.recv(auto_ack=True):
-        logger.info("batch %s", payload)
-        mapper(
-            pipe_in=pipe.map_stars5(),
-            map_fn=map_stars,
-            pipe_out=pipe.star5_summary(),
-            logger=logger,
-        )
+    with HealthServer():
+        control = pipe.pub_sub_control()
+        for payload, _ in control.recv(auto_ack=True):
+            logger.info("batch %s", payload)
+            mapper(
+                pipe_in=pipe.map_stars5(),
+                map_fn=map_stars,
+                pipe_out=pipe.star5_summary(),
+                logger=logger,
+            )
 
 
 if __name__ == "__main__":

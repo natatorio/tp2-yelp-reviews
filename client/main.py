@@ -83,7 +83,7 @@ def main():
         max_size=MAX_REVIEWS,
         session_id=session_id,
         pipe_out=reviews,
-        pause=MAX_REVIEWS / 2,
+        # pause=MAX_REVIEWS / 2,
     )
     reviews.send(
         {

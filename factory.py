@@ -1,7 +1,6 @@
 import os
 from threading import Thread
 from kevasto import Client
-from health_server import HealthServer
 from filters import Filter, Join, Mapper, Notify, Persistent, Reducer
 import logging
 import docker
@@ -29,10 +28,7 @@ def mapper(
     map_fn,
     start_fn=lambda: None,
     logger=logger,
-    health_server=None,
 ):
-    if health_server is None:
-        health_server = HealthServer()
     logger.setLevel(logging.INFO)
     consumer = Filter(pipe_in)
     mapper = Mapper(
@@ -50,9 +46,7 @@ def mapper(
         consumer.close()
 
 
-def sink(pipe_in, observer, logger=logger, health_server=None):
-    if health_server is None:
-        health_server = HealthServer()
+def sink(pipe_in, observer, logger=logger):
     client = docker.from_env()
     container = client.containers.get(os.environ["HOSTNAME"])
     host_name = container.name
@@ -73,7 +67,6 @@ def sink(pipe_in, observer, logger=logger, health_server=None):
 
 
 def reducer(pipe_in, pipe_out, step_fn, logger=logger):
-    healthServer = HealthServer()
     client = docker.from_env()
     container = client.containers.get(os.environ["HOSTNAME"])
     host_name = container.name
@@ -97,7 +90,6 @@ def reducer(pipe_in, pipe_out, step_fn, logger=logger):
 
 
 def joiner(pipe_left, left_fn, pipe_right, right_fn, pipe_out, join_fn):
-    healthServer = HealthServer()
     left_consumer = Filter(pipe_left)
     right_consumer = Filter(pipe_right)
     joint = Join(join_fn, pipe_out)

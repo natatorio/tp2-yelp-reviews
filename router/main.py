@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def consume_reviews(health_server):
+def consume_reviews():
     def funny(reviews):
         return [
             {
@@ -42,11 +42,10 @@ def consume_reviews(health_server):
                 pipe.Formatted(pipe.map_stars5(), stars5),
             ]
         ),
-        health_server=health_server,
     )
 
 
-def consume_business(health_server):
+def consume_business():
     def route_business(business):
         return [{"city": b["city"], "business_id": b["business_id"]} for b in business]
 
@@ -54,17 +53,16 @@ def consume_business(health_server):
         pipe_in=pipe.data_business(),
         map_fn=route_business,
         pipe_out=pipe.business_cities_summary(),
-        health_server=health_server,
     )
 
 
 def main():
-    healthServer = HealthServer()
-    control = pipe.pub_sub_control()
-    for payload, _ in control.recv(auto_ack=True):
-        logger.info("batch %s", payload)
-        consume_business(health_server=healthServer)
-        consume_reviews(healthServer)
+    with HealthServer():
+        control = pipe.pub_sub_control()
+        for payload, _ in control.recv(auto_ack=True):
+            logger.info("batch %s", payload)
+            consume_business()
+            consume_reviews()
 
 
 if __name__ == "__main__":

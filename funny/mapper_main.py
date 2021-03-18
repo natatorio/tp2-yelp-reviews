@@ -8,8 +8,6 @@ logger.setLevel(logging.INFO)
 
 
 def main():
-    health_server = HealthServer()
-
     def funny(business_city):
         logger.info("start mapping funny business")
 
@@ -24,17 +22,16 @@ def main():
             pipe_in=pipe.map_funny(),
             map_fn=map_business,
             pipe_out=pipe.funny_summary(),
-            health_server=health_server,
         )
 
-    control = pipe.pub_sub_control()
-    for payload, _ in control.recv(auto_ack=True):
-        logger.info("batch %s", payload)
-        sink(
-            pipe_in=pipe.sub_funny_business_cities(),
-            observer=funny,
-            health_server=health_server,
-        )
+    with HealthServer():
+        control = pipe.pub_sub_control()
+        for payload, _ in control.recv(auto_ack=True):
+            logger.info("batch %s", payload)
+            sink(
+                pipe_in=pipe.sub_funny_business_cities(),
+                observer=funny,
+            )
 
 
 if __name__ == "__main__":

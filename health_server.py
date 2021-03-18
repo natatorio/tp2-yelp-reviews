@@ -59,6 +59,12 @@ class HealthServer:
     def stop(self):
         exit(0)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self):
+        self.stop()
+
 
 class LeaderServer(HealthServer):
     def __init__(self, poolId):

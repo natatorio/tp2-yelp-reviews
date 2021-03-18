@@ -1,4 +1,5 @@
 import hashlib
+from health_server import HealthServer
 import pipe
 import logging
 from factory import mapper
@@ -16,15 +17,16 @@ def main():
             for r in reviews
         ]
 
-    control = pipe.pub_sub_control()
-    for payload, _ in control.recv(auto_ack=True):
-        logger.info("batch %s", payload)
-        mapper(
-            pipe_in=pipe.map_comment(),
-            pipe_out=pipe.comment_summary(),
-            map_fn=map_user_text,
-            logger=logger,
-        )
+    with HealthServer():
+        control = pipe.pub_sub_control()
+        for payload, _ in control.recv(auto_ack=True):
+            logger.info("batch %s", payload)
+            mapper(
+                pipe_in=pipe.map_comment(),
+                pipe_out=pipe.comment_summary(),
+                map_fn=map_user_text,
+                logger=logger,
+            )
 
 
 if __name__ == "__main__":
