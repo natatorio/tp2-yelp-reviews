@@ -1,5 +1,7 @@
 import json
 import logging
+import threading
+import atexit
 from typing import List
 
 import pika
@@ -22,33 +24,40 @@ def open_connection():
 
 class Connection:
     def __init__(self) -> None:
-        self.connection = open_connection()
+        self.local = threading.local()
+        self.local.connection = open_connection()
+        atexit.register(self.local.connection.close)
 
     def close(self):
-        self.connection.close()
+        if hasattr(self.local, "connection"):
+            self.local.connection.close()
 
     def channel(self):
+        if not hasattr(self.local, "connection"):
+            self.local.connection = open_connection()
+            atexit.register(self.local.connection.close)
         i = 0
         while i < RETRIES:
             try:
-                if self.connection.is_closed:
-                    self.connection = open_connection()
-                return self.connection.channel()
+                if self.local.connection.is_closed:
+                    self.local.connection = open_connection()
+                return self.local.connection.channel()
             except Exception as e:
                 logger.exception(f"while trying to get channel {str(e)}")
             i += 1
         raise Exception("Couldn't instantiate channel")
 
 
+connection = Connection()
+
+
 @contextmanager
 def lease_channel():
-    connection = Connection()
     channel = connection.channel()
     try:
         yield channel
     finally:
         channel.close()
-        connection.close()
 
 
 class Close:
@@ -63,7 +72,6 @@ class Send(Close):
 
 class Exchange(Send):
     def __init__(self, exchange, routing_key) -> None:
-        self.connection = None
         self.channel = None
         self.routing_key = routing_key
         self.exchange = exchange
@@ -72,10 +80,8 @@ class Exchange(Send):
         self.send_to(self.exchange, self.routing_key, data)
 
     def send_to(self, exchange, routing_key, data):
-        if self.connection is None:
-            self.connection = Connection()
         if self.channel is None:
-            self.channel = self.connection.channel()
+            self.channel = connection.channel()
         return self.channel.basic_publish(
             exchange=exchange,
             routing_key=routing_key,
@@ -85,8 +91,6 @@ class Exchange(Send):
     def close(self):
         if self.channel is not None:
             self.channel.close()
-        if self.connection is not None:
-            self.connection.close()
 
 
 class Formatted(Send):
@@ -128,7 +132,6 @@ class Recv(Close):
 class Pipe(Recv, Exchange):
     def __init__(self, exchange, routing_key, queue):
         logger.info("pipe %s %s %s", exchange, routing_key, queue)
-        self.connection = None
         self.channel = None
         with lease_channel() as channel:
             self.exchange = exchange
@@ -154,11 +157,9 @@ class Pipe(Recv, Exchange):
         return f"Pipe[{self.exchange},{self.routing_key},{self.queue}]"
 
     def recv(self, auto_ack=False):
-        if self.connection is None:
-            self.connection = Connection()
         try:
-            if self.channel is None:
-                self.channel = self.connection.channel()
+            if self.channel is None or self.channel.is_closed:
+                self.channel = connection.channel()
             for method, _, body in self.channel.consume(self.queue, auto_ack=False):
                 ack = lambda: self.channel.basic_ack(method.delivery_tag)
                 yield (
@@ -170,8 +171,9 @@ class Pipe(Recv, Exchange):
         except (AMQPConnectionError, ChannelClosed) as e:
             logger.exception(str(e))
             self.channel = None
+            raise
         finally:
-            if self.channel:
+            if self.channel and self.channel.is_open:
                 self.channel.cancel()
 
     def close(self):
@@ -188,11 +190,6 @@ class Pipe(Recv, Exchange):
                     routing_key=self.routing_key,
                 )
                 channel.queue_delete(queue=self.queue)
-        if self.connection is not None:
-            try:
-                self.connection.close()
-            except:
-                logger.error("failted to close connection")
 
     def cancel(self):
         self.channel.cancel()
