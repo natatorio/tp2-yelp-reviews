@@ -4,14 +4,13 @@ import json
 import os
 import random
 from threading import RLock
-from time import time
 
 from scheduler import Scheduler
 import requests
 import logging
 
-HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", 1000))
-FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 2000))
+HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", 2000))
+FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 10000))
 HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", 30 * 1000))
 HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 100)) * 1024 * 1024
 
@@ -73,6 +72,7 @@ class Follower:
             self.context.schedule(self.election_timeout, self.on_election_timeout)
 
     def append_entries(self, req):
+        logger.debug("append_entries %s", self.last_message_time)
         if self.context.voted_for is None:
             self.context.voted_for = req["leader_id"]
 
@@ -134,10 +134,12 @@ class Candidate:
         if votes >= int(len(self.context.replicas) / 2) + 1:
             self.context.as_leader()
         else:
+            logger.info("step down as follower")
             self.context.__vote__(None, max(max_term, self.context.current_term))
             self.context.as_follower()
 
     def append_entries(self, req):
+        logger.info("candidate append_entries")
         return {
             "term": self.context.current_term,
             "success": False,
@@ -219,18 +221,17 @@ class Leader:
         self.house_keeper = HouseKeeper(self)
 
     def heartbeat(self):
+        logger.debug("heartbeat %s", self.last_timestamp)
         if self.context.state != self:
             return
-        elapsed_time = datetime.now() - self.last_timestamp
-        if elapsed_time.total_seconds() * 1000 < self.heartbeat_timeout - 50:
-            self.context.schedule(self.heartbeat_timeout, self.heartbeat)
-
         if self.context.voted_for == self.context.name:
             with append_measure("heartbeat_time", self.context.stats):
                 commited = self.update_replicas()
             if commited > self.context.commit_index:
                 self.context.__update_commit_index__(commited)
-            self.context.schedule(self.heartbeat_timeout, self.heartbeat)
+            elapsed_time = datetime.now() - self.last_timestamp
+            if elapsed_time.total_seconds() * 1000 < self.heartbeat_timeout - 50:
+                self.context.schedule(self.heartbeat_timeout, self.heartbeat)
 
     def append_entries(self, req):
         if req["term"] > self.context.current_term:
@@ -247,6 +248,7 @@ class Leader:
         return voted
 
     def update_replicas(self):
+        self.last_timestamp = datetime.now()
         for replica in self.context.replicas:
             if replica == self.context.name:
                 self.match_index[replica] = len(self.context.entries) - 1
@@ -526,7 +528,6 @@ class Raft:
         self.config.flush()
 
     def __append_entries__(self, req):
-        logger.debug("append_entries: %s", req)
         snapshot = req.get("snapshot")
         if snapshot is not None and req["snapshot_version"] >= self.snapshot_version:
             if req["snapshot_version"] > self.snapshot_version:

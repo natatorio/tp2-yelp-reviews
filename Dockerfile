@@ -9,7 +9,7 @@ RUN pip install docker
 RUN pip install bjoern 
 COPY . .
 ENV CHECKPOINT=100
-ENV PREFETCH_COUNT=100
+# ENV PREFETCH_COUNT=100
 ENV PYTHONUNBUFFERED=1
-ENV AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5&heartbeat=120
+ENV AMQP_URL=amqp://rabbitmq?connection_attempts=5&retry_delay=5&heartbeat=300
 CMD python3 -m client.main

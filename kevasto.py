@@ -20,24 +20,24 @@ class Log:
             self.data["entries"] = []
             self.data["base"] = 0
 
-    def translate(self, i):
+    def translate(self, i, accesible):
         virtual_size = self.data["base"] + len(self.data["entries"])
         if i > virtual_size:
             raise Exception(f"Illegal index {i} > {virtual_size}")
         index = i - self.data["base"]
-        if index < 0:
+        if accesible and index < 0:
             raise Exception(f"Illegal index {i} < {self.data['base']}")
         return index
 
     def list(self, start):
-        return self.data["entries"][self.translate(start) :]
+        return self.data["entries"][self.translate(start, True) :]
 
     def drop(self, i):
         if i is None:
             self.data["base"] = 0
             self.data["entries"] = []
         else:
-            index = self.translate(i)
+            index = self.translate(i, False)
             self.data["base"] = i
             self.data["entries"] = self.data["entries"][index:]
 

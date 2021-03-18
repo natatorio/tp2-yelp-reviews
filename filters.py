@@ -271,7 +271,8 @@ class Persistent(Cursor):
                     "seq_num": self.seq_num,
                 },
             )
-            self.db.log_drop(self.name, self.seq_num)
+            if self.seq_num > 0:
+                self.db.log_drop(self.name, self.seq_num)
         self.seq_num += 1
         return acc
 
