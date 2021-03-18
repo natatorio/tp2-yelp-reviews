@@ -113,6 +113,8 @@ services:
     depends_on:
       - rabbitmq
       - kevasto
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   histogram_mapper:
     image: reviews
@@ -125,6 +127,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   users:
     image: reviews
@@ -137,6 +141,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   histogram:
     image: reviews
@@ -149,6 +155,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   business:
     image: reviews
@@ -161,6 +169,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   stars5:
     image: reviews
@@ -173,6 +183,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   stars5_mapper:
     image: reviews
@@ -185,6 +197,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   comment:
     image: reviews
@@ -197,6 +211,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   comment_mapper:
     image: reviews
@@ -209,6 +225,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   funny:
     image: reviews
@@ -221,6 +239,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   funny_mapper:
     image: reviews
@@ -233,6 +253,8 @@ services:
       - reviews_network
     depends_on:
       - router
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 networks:
   reviews_network:

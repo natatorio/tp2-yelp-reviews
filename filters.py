@@ -9,20 +9,9 @@ logger = logging.getLogger("filter")
 logger.setLevel(logging.INFO)
 
 
-def count_key(key):
-    def key_counter(acc, data):
-        for elem in data:
-            acc[elem[key]] = acc.get(elem[key], 0) + 1
-        return acc
-
-    return key_counter
-
-
-def use_value(acc, right):
-    return right
-
-
 class Cursor:
+    is_done = False
+
     def setup(self, caller):
         return
 
@@ -35,12 +24,6 @@ class Cursor:
     def end(self, acc, context):
         pass
 
-    def quit(self, acc, context) -> bool:
-        return False
-
-    def exception(self, ex):
-        raise ex
-
     def close(self):
         pass
 
@@ -50,26 +33,20 @@ class Filter:
         self.pipe_in = pipe_in
 
     def run(self, cursor: Cursor):
-        logger.info("start consuming %s", self.pipe_in)
         cursor.setup(self)
-        quit = False
-        while not quit:
-            acc = cursor.start()
-            try:
-                for payload, ack in self.pipe_in.recv():
-                    if payload.get("data"):
-                        acc = cursor.step(acc, payload)
-                        ack()
-                    else:
-                        cursor.end(acc, payload)
-                        ack()
-                        if cursor.quit(acc, payload):
-                            quit = True
-                            break
-                        acc = cursor.start()
-            except Exception as e:
-                cursor.exception(e)
-        logger.info("done consuming %s", self.pipe_in)
+        acc = cursor.start()
+        if not cursor.is_done:
+            logger.info("start consuming %s", self.pipe_in)
+            for payload, ack in self.pipe_in.recv(auto_ack=False):
+                if payload.get("data"):
+                    acc = cursor.step(acc, payload)
+                    ack()
+                else:
+                    cursor.end(acc, payload)
+                    ack()
+                    break
+            logger.info("done consuming %s", self.pipe_in)
+        cursor.close()
 
     def close(self):
         self.pipe_in.close()
@@ -96,6 +73,7 @@ class EndOnce(Cursor):
         else:
             self.end_once(acc, payload)
             logger.info("batch done: %s %s", self.pipe_in, payload["session_id"])
+        self.is_done = True
 
     def end_once(self, acc, payload):
         return
@@ -233,9 +211,6 @@ class Persistent(Cursor):
     def setup(self, caller):
         return self.cursor.setup(caller)
 
-    def quit(self, acc, payload) -> bool:
-        return self.cursor.quit(acc, payload)
-
     def start_from_scratch(self):
         self.seq_num = 0
         self.db.log_drop(self.name, None)
@@ -257,7 +232,7 @@ class Persistent(Cursor):
         for item in items:
             if item.get("data") is None:
                 self.end(acc, item)
-                acc = self.start_from_scratch()
+                self.is_done = self.cursor.is_done
             else:
                 acc = self.cursor.step(acc, item)
                 self.seq_num += 1
@@ -274,8 +249,7 @@ class Persistent(Cursor):
     def step(self, acc, payload) -> object:
         self.db.log_append(self.name, self.seq_num, payload)
         acc = self.cursor.step(acc, payload)
-        self.seq_num += 1
-        if self.seq_num % 250 == 0:
+        if self.seq_num % 100 == 0:
             payload.pop("data", None)
             self.db.put(
                 self.name,
@@ -286,6 +260,7 @@ class Persistent(Cursor):
                 },
             )
             self.db.log_drop(self.name, self.seq_num)
+        self.seq_num += 1
         return acc
 
     def end(self, acc, payload):
@@ -295,9 +270,6 @@ class Persistent(Cursor):
             self.name,
             "state",
         )
-
-    def exception(self, ex):
-        return self.cursor.exception(ex)
 
     def close(self):
         self.cursor.close()
@@ -309,13 +281,13 @@ class Dedup:
         self.batch_done = set()
         self.processed = set()
         self.db = client
-        self.name = name
+        self.name = name + "_processed"
 
     def setup(self, caller):
         return self.cursor.setup(caller)
 
     def start(self) -> object:
-        processed = self.db.get(self.name, "processed")
+        processed = self.db.log_fetch(self.name, 0)
         if processed is None:
             processed = []
         self.processed = set(processed)
@@ -328,17 +300,14 @@ class Dedup:
             return acc
         acc = self.cursor.step(acc, payload)
         self.processed.add(payload["id"])
+        self.db.log_append(self.name, None, payload["id"])
         return acc
 
     def end(self, acc, payload):
         self.batch_done.add(payload["session_id"])
-        return self.cursor.end(acc, payload)
-
-    def quit(self, acc, payload) -> bool:
-        return self.cursor.quit(acc, payload)
-
-    def exception(self, ex):
-        return self.cursor.exception(ex)
+        self.cursor.end(acc, payload)
+        self.db.log_drop(self.name, None)
+        self.is_done = self.cursor.is_done
 
     def close(self):
-        return self.cursor.close()
+        self.cursor.close()

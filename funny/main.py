@@ -1,10 +1,7 @@
-from kevasto import Client
-from filters import Filter, Persistent, Reducer, count_key
-from health_server import HealthServer
-
 import pipe
 from pipe import Formatted
 import logging
+from factory import reducer, count_key
 
 logger = logging.getLogger(__name__)
 
@@ -23,25 +20,15 @@ def main():
             },
         )
 
-    healthServer = HealthServer()
-    consumer = Filter(pipe_in=pipe.funny_summary())
-    reducer = Persistent(
-        cursor=Reducer(
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        reducer(
+            pipe_in=pipe.funny_summary(),
             step_fn=count_key("city"),
             pipe_out=Formatted(pipe.reports(), topTenFunnyPerCity),
-        ),
-        name="funny",
-        client=Client(),
-    )
-    try:
-        consumer.run(reducer)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        reducer.close()
-        consumer.close()
-        healthServer.stop()
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
-from filters import Filter, Mapper
-from health_server import HealthServer
 import pipe
 import logging
+from factory import mapper
 
 logger = logging.getLogger(__name__)
 
@@ -14,22 +13,15 @@ def main():
             if r["stars"] == 5.0
         ]
 
-    healthServer = HealthServer()
-    consumer = Filter(pipe.map_stars5())
-    mapper = Mapper(
-        start_fn=lambda: None,
-        map_fn=map_stars,
-        pipe_out=pipe.star5_summary(),
-    )
-    try:
-        consumer.run(mapper)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        consumer.close()
-        mapper.close()
-        healthServer.stop()
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        mapper(
+            pipe_in=pipe.map_stars5(),
+            map_fn=map_stars,
+            pipe_out=pipe.star5_summary(),
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":

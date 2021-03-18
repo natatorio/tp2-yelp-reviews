@@ -1,15 +1,14 @@
-import sys
-from filters import Filter, Mapper, Mapper
-from threading import Thread
 from health_server import HealthServer
 import pipe
 from pipe import Scatter
 import logging
+from factory import mapper
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
-def consume_reviews():
+def consume_reviews(health_server):
     def funny(reviews):
         return [
             {
@@ -31,9 +30,8 @@ def consume_reviews():
     def histogram(reviews):
         return [{"date": r["date"]} for r in reviews]
 
-    consumer = Filter(pipe_in=pipe.data_review())
-    mapper = Mapper(
-        start_fn=lambda: None,
+    mapper(
+        pipe_in=pipe.data_review(),
         map_fn=lambda x: x,
         pipe_out=Scatter(
             [
@@ -44,45 +42,29 @@ def consume_reviews():
                 pipe.Formatted(pipe.map_stars5(), stars5),
             ]
         ),
+        health_server=health_server,
     )
-    try:
-        consumer.run(mapper)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        mapper.close()
-        consumer.close()
 
 
-def consume_business():
-    consumer = Filter(pipe.data_business())
-
+def consume_business(health_server):
     def route_business(business):
         return [{"city": b["city"], "business_id": b["business_id"]} for b in business]
 
-    mapper = Mapper(
-        start_fn=lambda: None,
+    mapper(
+        pipe_in=pipe.data_business(),
         map_fn=route_business,
         pipe_out=pipe.business_cities_summary(),
+        health_server=health_server,
     )
-    try:
-        consumer.run(mapper)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        mapper.close()
-        consumer.close()
 
 
 def main():
     healthServer = HealthServer()
-    thread = Thread(target=consume_business)
-    thread.start()
-    consume_reviews()
-    thread.join()
-    healthServer.stop()
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        consume_business(health_server=healthServer)
+        consume_reviews(healthServer)
 
 
 if __name__ == "__main__":

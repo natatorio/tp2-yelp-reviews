@@ -1,8 +1,6 @@
-from threading import Thread
-from filters import Filter, Join, count_key, use_value
-from health_server import HealthServer
 import pipe
 import logging
+from factory import joiner, use_value, count_key
 
 logger = logging.getLogger(__name__)
 
@@ -14,32 +12,17 @@ def main():
             {k: v for (k, v) in user_count.items() if v == review_count.get(k, 0)},
         )
 
-    healthServer = HealthServer()
-    left_consumer = Filter(pipe.star5_summary())
-    right_consumer = Filter(pipe.user_count_50())
-    joint = Join(join_fn=join, pipe_out=pipe.reports())
-    left_mapper = joint.left(count_key("user_id"))
-
-    def consume_right():
-        right_mapper = joint.right(use_value)
-        try:
-            right_consumer.run(right_mapper)
-        finally:
-            right_mapper.close()
-            right_consumer.close()
-
-    try:
-        thread = Thread(target=consume_right)
-        thread.start()
-        left_consumer.run(left_mapper)
-        thread.join()
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        left_mapper.close()
-        left_consumer.close()
-        healthServer.stop()
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        joiner(
+            pipe_left=pipe.star5_summary(),
+            left_fn=count_key("user_id"),
+            pipe_right=pipe.user_count_50(),
+            right_fn=use_value,
+            join_fn=join,
+            pipe_out=pipe.reports(),
+        )
 
 
 if __name__ == "__main__":

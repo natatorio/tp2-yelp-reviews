@@ -44,6 +44,9 @@ class Log:
     def concat(self, values):
         self.data["entries"].extend(values)
 
+    def append(self, value):
+        self.data["entries"].append(value)
+
 
 class KeyValueVM(NopVM):
     data = {"keyvalue": {}, "log": {}}
@@ -69,7 +72,7 @@ class KeyValueVM(NopVM):
                 if op == "drop":
                     log.drop(command["start"])
                 elif op == "append":
-                    log.concat(command["val"])
+                    log.append(command["val"])
             else:
                 if op == "+":
                     bucket[command["key"]] = command["val"]
@@ -332,7 +335,7 @@ class Client:
             res = self.session.get(url)
             content = res.json()
             if res.status_code == 200:
-                return (True, None)
+                return (True, content["data"])
             elif content.get("redirect"):
                 self.host = content["redirect"]
             return (False, res.text)

@@ -1,11 +1,10 @@
 import json
 import logging
-from threading import Condition
 from typing import List
 
 import pika
 import os
-
+from pika.exceptions import AMQPConnectionError, ChannelClosed
 
 from contextlib import contextmanager
 
@@ -77,19 +76,11 @@ class Exchange(Send):
             self.connection = Connection()
         if self.channel is None:
             self.channel = self.connection.channel()
-        i = 0
-        while i < RETRIES:
-            try:
-                return self.channel.basic_publish(
-                    exchange=exchange,
-                    routing_key=routing_key,
-                    body=json.dumps(data),
-                )
-            except Exception as e:
-                logger.exception(f"retry connection {str(e)}")
-                self.channel = self.connection.channel()
-            i += 1
-        raise Exception("Couldn't instantiate channel")
+        return self.channel.basic_publish(
+            exchange=exchange,
+            routing_key=routing_key,
+            body=json.dumps(data),
+        )
 
     def close(self):
         if self.channel is not None:
@@ -165,32 +156,30 @@ class Pipe(Recv, Exchange):
     def recv(self, auto_ack=False):
         if self.connection is None:
             self.connection = Connection()
-        i = 0
-        while i < RETRIES:
-            try:
-                if self.channel is None:
-                    self.channel = self.connection.channel()
+        try:
+            if self.channel is None:
                 self.channel = self.connection.channel()
-                self.channel.basic_qos(prefetch_count=1)
-                for method, _, body in self.channel.consume(
-                    self.queue, auto_ack=auto_ack
-                ):
-                    yield (
-                        json.loads(body.decode("utf-8")),
-                        lambda: self.channel.basic_ack(method.delivery_tag),
-                    )
+            for method, _, body in self.channel.consume(self.queue, auto_ack=False):
+                ack = lambda: self.channel.basic_ack(method.delivery_tag)
+                yield (
+                    json.loads(body.decode("utf-8")),
+                    ack,
+                )
+                if auto_ack:
+                    ack()
+        except (AMQPConnectionError, ChannelClosed) as e:
+            logger.exception(str(e))
+            self.channel = None
+        finally:
+            if self.channel:
                 self.channel.cancel()
-                return
-            except Exception as e:
-                logger.exception(f"retry connection {str(e)}")
-            i += 1
-        raise Exception("Couldn't instantiate channel")
 
     def close(self):
         if self.channel is not None:
-            self.channel.close()
-        if self.connection is not None:
-            self.connection.close()
+            try:
+                self.channel.close()
+            except:
+                logger.error("failed to close channel")
         if self.remove_queue:
             with lease_channel() as channel:
                 channel.queue_unbind(
@@ -199,6 +188,14 @@ class Pipe(Recv, Exchange):
                     routing_key=self.routing_key,
                 )
                 channel.queue_delete(queue=self.queue)
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except:
+                logger.error("failted to close connection")
+
+    def cancel(self):
+        self.channel.cancel()
 
     def __enter__(self):
         return self
@@ -208,18 +205,12 @@ class Pipe(Recv, Exchange):
 
 
 # routed by reviews
-def business_cities_summary():
-    return Pipe(
-        exchange="reviews",
-        routing_key="business.cities",
-        queue="business.cities.summary",
-    )
 
 
 def comment_summary():
     return Pipe(
         exchange="reviews",
-        routing_key="comment",
+        routing_key="comment.summary",
         queue="comment.summary",
     )
 
@@ -235,7 +226,7 @@ def user_count_5():
 def funny_summary():
     return Pipe(
         exchange="reviews",
-        routing_key="funny",
+        routing_key="funny.summary",
         queue="funny.summary",
     )
 
@@ -243,7 +234,7 @@ def funny_summary():
 def histogram_summary():
     return Pipe(
         exchange="reviews",
-        routing_key="histogram",
+        routing_key="histogram.summary",
         queue="histogram.summary",
     )
 
@@ -251,7 +242,7 @@ def histogram_summary():
 def star5_summary():
     return Pipe(
         exchange="reviews",
-        routing_key="star5",
+        routing_key="star5.summary",
         queue="star5.summary",
     )
 
@@ -267,31 +258,18 @@ def user_count_50():
 def user_summary():
     return Pipe(
         exchange="reviews",
-        routing_key="users",
+        routing_key="users.summary",
         queue="users.summary",
     )
 
 
 # routed by map
-def pub_funny_business_cities():
-    return Exchange(
-        exchange="map",
-        routing_key="funny.business_cities",
-    )
-
-
-def sub_funny_business_cities():
-    return Pipe(
-        exchange="map",
-        routing_key="funny.business_cities",
-        queue="",
-    )
 
 
 def map_funny():
     return Pipe(
         exchange="map",
-        routing_key="funny.reviews",
+        routing_key="funny",
         queue="funny",
     )
 
@@ -321,6 +299,29 @@ def map_stars5():
 
 
 # routed by data
+def pub_funny_business_cities():
+    return Exchange(
+        exchange="map",
+        routing_key="funny.business_cities",
+    )
+
+
+def sub_funny_business_cities():
+    return Pipe(
+        exchange="map",
+        routing_key="funny.business_cities",
+        queue="",
+    )
+
+
+def business_cities_summary():
+    return Pipe(
+        exchange="map",
+        routing_key="business.summary",
+        queue="business.summary",
+    )
+
+
 def data_business():
     return Pipe(
         exchange="data",
@@ -345,32 +346,19 @@ def reports():
     )
 
 
+import docker
+
+
 def pub_sub_control():
+    try:
+        client = docker.from_env()
+        container = client.containers.get(os.environ["HOSTNAME"])
+        name = container.name
+        client.close()
+    except:
+        name = ""
     return Pipe(
-        exchange="",
+        exchange="control",
         routing_key="control",
-        queue="",
+        queue=name,
     )
-
-
-class Control:
-    def __init__(self) -> None:
-        self.control = pub_sub_control()
-        self.condition = Condition()
-        self.payload = None
-        self.quit = False
-
-    def listen(self):
-        for payload, _ in self.control.recv(auto_ack=True):
-            if payload["kind"] == "ack":
-                with self.condition:
-                    self.payload = payload
-                    self.condition.notify_all()
-
-    def wait(self, op_name):
-        self.control.send({"kind": "req", "name": op_name})
-        while self.quit != True:
-            with self.condition:
-                self.condition.wait()
-                if self.payload["name"] == op_name:
-                    return self.payload

@@ -21,9 +21,9 @@ logger.setLevel(logging.INFO)
 
 @contextlib.contextmanager
 def append_measure(name, stats):
-    start_time = time()
+    # start_time = time()
     yield None
-    stats[name].append(time() - start_time)
+    # stats[name].append(time() - start_time)
 
 
 def create_if_not_exists(file_path):

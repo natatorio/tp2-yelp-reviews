@@ -1,8 +1,7 @@
 from datetime import datetime
-from filters import Filter, Mapper
-from health_server import HealthServer
 import pipe
 import logging
+from factory import mapper
 
 logger = logging.getLogger(__name__)
 
@@ -18,22 +17,15 @@ def main():
             for d in dates
         ]
 
-    healthServer = HealthServer()
-    consumer = Filter(pipe.map_histogram())
-    mapper = Mapper(
-        start_fn=lambda: None,
-        map_fn=map_histogram,
-        pipe_out=pipe.histogram_summary(),
-    )
-    try:
-        consumer.run(mapper)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        consumer.close()
-        mapper.close()
-        healthServer.stop()
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        mapper(
+            pipe_in=pipe.map_histogram(),
+            map_fn=map_histogram,
+            pipe_out=pipe.histogram_summary(),
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":

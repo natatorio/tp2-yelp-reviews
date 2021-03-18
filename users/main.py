@@ -1,9 +1,7 @@
-from kevasto import Client
-from filters import Persistent, Reducer, Filter, count_key
-from health_server import HealthServer
 import pipe
 from pipe import Send
 import logging
+from factory import reducer, count_key
 
 logger = logging.getLogger(__name__)
 
@@ -37,26 +35,15 @@ class UserSend(Send):
 
 
 def main():
-    healthServer = HealthServer()
-    counter = Filter(pipe.user_summary())
-    reducer = Persistent(
-        cursor=Reducer(
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        reducer(
+            pipe_in=pipe.user_summary(),
             step_fn=count_key("user_id"),
             pipe_out=UserSend(),
+            logger=logger,
         ),
-        name="users",
-        client=Client(),
-    )
-
-    try:
-        counter.run(reducer)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        counter.close()
-        reducer.close()
-        healthServer.stop()
 
 
 if __name__ == "__main__":

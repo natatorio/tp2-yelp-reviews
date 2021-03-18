@@ -11,10 +11,12 @@ logging.basicConfig()
 logger = logging.getLogger("WatchdogSideCar")
 logger.setLevel(logging.INFO)
 
+
 def get_my_ip():
     client = docker.from_env()
     container = client.containers.get(os.environ["HOSTNAME"])
     return container.name
+
 
 def revive(ip):
     logger.info("Process %s has died. Starting it up again...", ip)
@@ -57,6 +59,7 @@ class HealthServer:
     def stop(self):
         exit(0)
 
+
 class LeaderServer(HealthServer):
     def __init__(self, poolId):
         self.leaderIp = [None]
@@ -72,7 +75,14 @@ class LeaderServer(HealthServer):
         self.t.start()
 
     def __run_thread(self):
-        self.t = threading.Thread(target=self.run_server, args=(self.leaderIp, self.resolved, self.requested, ))
+        self.t = threading.Thread(
+            target=self.run_server,
+            args=(
+                self.leaderIp,
+                self.resolved,
+                self.requested,
+            ),
+        )
 
     def run_server(self, leaderIp, resolved, requested):
         self.leaderIp = leaderIp
@@ -82,22 +92,18 @@ class LeaderServer(HealthServer):
         super().run_server()
 
     def __route_leader_endpoints(self):
-        @self.app.route("/election", methods = ["POST"])
+        @self.app.route("/election", methods=["POST"])
         def election_msg():
             self.requested.set()
-            return make_response(
-                {}, 200
-            )
+            return make_response({}, 200)
 
-        @self.app.route("/cordinator/<leader_ip>", methods = ["POST"])
+        @self.app.route("/cordinator/<leader_ip>", methods=["POST"])
         def set_leader(leader_ip):
             self.leaderIp.pop(0)
             self.leaderIp.append(leader_ip)
             self.resolved.set()
             logger.info(f"Now {self.get_leader_ip()} is the leader")
-            return make_response(
-                {}, 200
-            )
+            return make_response({}, 200)
 
     def wait_for_election_resolution(self):
         if self.requested.isSet():

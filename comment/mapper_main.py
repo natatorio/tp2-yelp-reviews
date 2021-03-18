@@ -1,8 +1,7 @@
 import hashlib
-from health_server import HealthServer
 import pipe
-from filters import Filter, Mapper
 import logging
+from factory import mapper
 
 logger = logging.getLogger(__name__)
 
@@ -17,22 +16,15 @@ def main():
             for r in reviews
         ]
 
-    consumer = Filter(pipe.map_comment())
-    healthServer = HealthServer()
-    mapper = Mapper(
-        start_fn=lambda: None,
-        map_fn=map_user_text,
-        pipe_out=pipe.comment_summary(),
-    )
-    try:
-        consumer.run(mapper)
-    except Exception as e:
-        logger.exception("")
-        raise e
-    finally:
-        consumer.close()
-        mapper.close()
-        healthServer.stop()
+    control = pipe.pub_sub_control()
+    for payload, _ in control.recv(auto_ack=True):
+        logger.info("batch %s", payload)
+        mapper(
+            pipe_in=pipe.map_comment(),
+            pipe_out=pipe.comment_summary(),
+            map_fn=map_user_text,
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":

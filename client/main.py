@@ -36,62 +36,63 @@ def publish_file(
                             "id": item_count,
                         }
                     )
+                    if pause is not None and item_count > pause:
+                        pause += pause
+                        logger.info("%s press enter to continue", item_count)
+                        input()
                     lines = f.readlines(chunk_size)
-                if pause is not None and item_count % pause > pause / 2:
-                    logger.info("%s press enter to continue", item_count)
-                    input()
-    logger.info("%s items read from %s", item_count, file_path)
+    logger.info(
+        "%s items read from %s",
+        item_count,
+        file_path,
+    )
     return item_count
 
 
 def main():
+    control = pipe.pub_sub_control()
     reports = pipe.reports()
     business = pipe.data_business()
     reviews = pipe.data_review()
     session_id = 1
+    control.send({"session_id": session_id})
     if len(sys.argv) > 1:
         session_id = int(sys.argv[1])
 
     logger.info("start session: %s", session_id)
     logger.info("loading business")
-    items = -1
-    try:
-        items = publish_file(
-            file_path=BUSINESS_DATASET_FILEPATH,
-            chunk_size=CHUNK_SIZE,
-            max_size=MAX_BUSINESS,
-            session_id=session_id,
-            pipe_out=business,
-        )
-    finally:
-        business.send(
-            {
-                "id": items + 1,
-                "data": None,
-                "session_id": session_id,
-            }
-        )
+    items = publish_file(
+        file_path=BUSINESS_DATASET_FILEPATH,
+        chunk_size=CHUNK_SIZE,
+        max_size=MAX_BUSINESS,
+        session_id=session_id,
+        pipe_out=business,
+    )
+    business.send(
+        {
+            "id": items + 1,
+            "data": None,
+            "session_id": session_id,
+        }
+    )
 
     logger.info("loading reviews")
-    items = -1
-    try:
-        items = publish_file(
-            file_path=REVIEWS_DATASET_FILEPATH,
-            chunk_size=CHUNK_SIZE,
-            max_size=MAX_REVIEWS,
-            session_id=session_id,
-            pipe_out=reviews,
-            pause=int(MAX_REVIEWS / 2),
-        )
-    finally:
-        reviews.send(
-            {
-                "id": items + 1,
-                "data": None,
-                "reply": "reports",
-                "session_id": session_id,
-            }
-        )
+    items = publish_file(
+        file_path=REVIEWS_DATASET_FILEPATH,
+        chunk_size=CHUNK_SIZE,
+        max_size=MAX_REVIEWS,
+        session_id=session_id,
+        pipe_out=reviews,
+        pause=MAX_REVIEWS / 2,
+    )
+    reviews.send(
+        {
+            "id": items + 1,
+            "data": None,
+            "reply": "reports",
+            "session_id": session_id,
+        }
+    )
 
     logger.info("waiting report")
     report = {}
@@ -102,10 +103,12 @@ def main():
             logger.info("%s = %s", key, pprint.pformat(val))
         if len(report) >= 5:
             break
+
     logger.info("end session %s", session_id)
     reports.close()
     business.close()
     reviews.close()
+    control.close()
 
 
 if __name__ == "__main__":
