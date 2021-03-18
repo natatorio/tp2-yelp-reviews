@@ -7,7 +7,7 @@ import logging
 
 logging.basicConfig()
 logger = logging.getLogger("WatchdogSideCar")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
 
 
 def main():
@@ -25,6 +25,7 @@ def main():
         "HISTOGRAM_MAPPER",
         "FUNNY_MAPPER",
         "KEVASTO",
+        "CONTROL",
     ]:
         nReplicas = int(os.environ.get("N_" + processKey, 1))
         processIp = os.environ["IP_" + processKey]

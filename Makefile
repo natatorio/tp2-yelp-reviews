@@ -24,7 +24,7 @@ rabbit-restart:
 .PHONY: rabbit-restart
 
 docker-compose-up:
-	time sudo docker-compose up -d --build --scale watchdog=7 --scale router=2 --scale stars5_mapper=2 --scale histogram_mapper=2 --scale funny_mapper=2 --scale comment_mapper=2 --scale kevasto=3
+	time sudo docker-compose up -d --build --scale watchdog=3 --scale router=2 --scale stars5_mapper=2 --scale histogram_mapper=2 --scale funny_mapper=2 --scale comment_mapper=2 --scale kevasto=3
 .PHONY: docker-compose-up
 
 docker-compose-down:
@@ -33,5 +33,5 @@ docker-compose-down:
 .PHONY: docker-compose-down
 
 docker-compose-logs:
-	sudo docker-compose -f docker-compose.yml logs -f watchdog
+	sudo docker-compose -f docker-compose.yml logs -f control
 .PHONY: docker-compose-logs
