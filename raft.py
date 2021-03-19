@@ -216,7 +216,7 @@ class Leader:
             replica: self.context.snapshot_version for replica in self.context.replicas
         }
         self.match_index = {replica: 0 for replica in self.context.replicas}
-        self.context.schedule(self.heartbeat_timeout, self.heartbeat)
+        self.context.schedule(self.heartbeat_timeout, self.heartbeat, True)
         self.last_timestamp = datetime.now()
         self.house_keeper = HouseKeeper(self)
 
@@ -231,7 +231,7 @@ class Leader:
                 self.context.__update_commit_index__(commited)
             elapsed_time = datetime.now() - self.last_timestamp
             if elapsed_time.total_seconds() * 1000 < self.heartbeat_timeout - 50:
-                self.context.schedule(self.heartbeat_timeout, self.heartbeat)
+                self.context.schedule(self.heartbeat_timeout, self.heartbeat, True)
 
     def append_entries(self, req):
         if req["term"] > self.context.current_term:
@@ -510,8 +510,9 @@ class Raft:
         self.log.flush()
 
     def __vote__(self, voted_for, term):
-        self.voted_for = voted_for
-        self.current_term = term
+        with self.lock:
+            self.voted_for = voted_for
+            self.current_term = term
 
     def save_config(self):
         self.config.seek(0, 0)
@@ -681,7 +682,9 @@ class Raft:
 
     def fetch(self, replica, service, data):
         try:
-            response = self.session.post(f"http://{replica}/{service}", json=data)
+            response = self.session.post(
+                f"http://{replica}/{service}", json=data, timeout=(3, 9)
+            )
             if response.status_code == 200:
                 return response.json()
             logger.info(f"{response.status_code}, {response.text}")
@@ -689,14 +692,14 @@ class Raft:
             logger.error(f"Calling {replica}/{service} " + str(e))
         return None
 
-    def schedule(self, delaymillis, func):
+    def schedule(self, delaymillis, func, locking=False):
         def wrapper():
             with self.lock:
                 func()
 
         self.scheduler.schedule(
             timedelta(milliseconds=delaymillis),
-            wrapper,
+            wrapper if locking else func,
         )
 
     def results(self, query):
