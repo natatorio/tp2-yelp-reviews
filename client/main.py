@@ -55,10 +55,10 @@ def main():
     business = pipe.data_business()
     reviews = pipe.data_review()
     session_id = 1
-    control.send({"session_id": session_id})
     if len(sys.argv) > 1:
         session_id = int(sys.argv[1])
 
+    control.send({"session_id": session_id})
     logger.info("start session: %s", session_id)
     logger.info("loading business")
     items = publish_file(

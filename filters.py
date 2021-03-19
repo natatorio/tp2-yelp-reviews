@@ -144,20 +144,17 @@ class Join:
             self.step_fn = step_fn
 
         def start(self) -> object:
-            self.parent.left_acc = {}
-            return self.parent.left_acc
+            return {}
 
         def step(self, acc, payload) -> object:
-            left_data = payload["data"]
-            self.parent.left_acc = self.step_fn(
+            return self.step_fn(
                 acc,
-                left_data,
+                payload["data"],
             )
-            return self.parent.left_acc
 
-        def end_once(self, left_data, payload):
+        def end_once(self, left_acc, payload):
             self.parent.barrier.wait()
-            acc = self.parent.join_fn(self.parent.left_acc, self.parent.right_acc)
+            acc = self.parent.join_fn(left_acc, self.parent.right_acc)
             self.parent.send_done.set()
             self.parent.pipe_out.send({**payload, "data": acc})
             self.parent.pipe_out.send({**payload, "data": None})
@@ -171,18 +168,16 @@ class Join:
             self.step_fn = step_fn
 
         def start(self) -> object:
-            self.parent.right_acc = {}
-            return self.parent.right_acc
+            return {}
 
         def step(self, acc, payload) -> object:
-            right_data = payload["data"]
-            self.parent.right_acc = self.step_fn(
+            return self.step_fn(
                 acc,
-                right_data,
+                payload["data"],
             )
-            return self.parent.right_acc
 
-        def end_once(self, right_data, payload):
+        def end_once(self, right_acc, payload):
+            self.parent.right_acc = right_acc
             self.parent.barrier.wait()
             self.parent.send_done.wait()
             self.parent.send_done.clear()
