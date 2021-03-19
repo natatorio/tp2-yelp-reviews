@@ -186,14 +186,13 @@ def add_raft_routes(app, raft: Raft):
             )
         )
 
-    @app.route("/log/<bucket>/<start>", methods=["POST"])
-    def log_post(bucket, start):
+    @app.route("/log/<bucket>/", methods=["POST"])
+    def log_post(bucket):
         return response(
             raft.append_entry(
                 {
                     "op": "append",
                     "bucket": bucket,
-                    "start": int(start),
                     "val": request.get_json(),
                     "store": "log",
                 }
@@ -302,7 +301,7 @@ class Client:
             10, lambda: __put__(f"http://{self.host}:80/keyvalue/{bucket}/{key}", data)
         )
 
-    def log_append(self, bucket, start, data):
+    def log_append(self, bucket, data):
         def __post__(url, data):
             res = self.session.post(url, json=data)
             content = res.json()
@@ -312,9 +311,7 @@ class Client:
                 self.host = content["redirect"]
             return (False, res.text)
 
-        return retry(
-            10, lambda: __post__(f"http://{self.host}:80/log/{bucket}/{start}", data)
-        )
+        return retry(10, lambda: __post__(f"http://{self.host}:80/log/{bucket}/", data))
 
     def log_drop(self, bucket, start):
         def __delete__(url):

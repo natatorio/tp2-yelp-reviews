@@ -254,7 +254,7 @@ class Persistent(Cursor):
             return self.start_from_checkpoint(state)
 
     def step(self, acc, payload) -> object:
-        self.db.log_append(self.name, self.seq_num, payload)
+        self.db.log_append(self.name, payload)
         acc = self.cursor.step(acc, payload)
         if self.seq_num % CHECKPOINT == 0:
             payload.pop("data", None)
@@ -272,7 +272,7 @@ class Persistent(Cursor):
         return acc
 
     def end(self, acc, payload):
-        self.db.log_append(self.name, self.seq_num, payload)
+        self.db.log_append(self.name, payload)
         self.cursor.end(acc, payload)
         self.db.delete(
             self.name,
@@ -305,7 +305,7 @@ class Dedup:
             return acc
         acc = self.cursor.step(acc, payload)
         self.processed.add(payload["id"])
-        self.db.log_append(self.name, None, payload["id"])
+        self.db.log_append(self.name, payload["id"])
         return acc
 
     def end(self, acc, payload):

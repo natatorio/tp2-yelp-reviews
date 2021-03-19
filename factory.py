@@ -3,7 +3,7 @@ from threading import Thread
 
 from pika.exceptions import ChannelClosed
 from kevasto import Client
-from filters import Filter, Join, Keep, Mapper, Notify, Persistent, Reducer
+from filters import Dedup, Filter, Join, Keep, Mapper, Notify, Persistent, Reducer
 import logging
 import docker
 
@@ -32,12 +32,18 @@ def use_value(acc, right):
     return right
 
 
-def tolerant(cursor, batch_id):
+def tolerant(cursor, batch_id, suffix=""):
+    client = Client()
+    name = node_name() + suffix
     return Keep(
         Persistent(
-            cursor=cursor,
-            client=Client(),
-            name=node_name(),
+            name,
+            Dedup(
+                name,
+                cursor,
+                client,
+            ),
+            client,
         ),
         batch_id,
     )
@@ -69,10 +75,10 @@ def sink(
     batch_id,
 ):
     with Filter(pipe_in) as consumer:
-        consumer.run(tolerant(Notify(observer=observer), batch_id))
+        consumer.run(tolerant(Notify(observer=observer), batch_id, suffix="sink"))
 
 
-def reducer(pipe_in, pipe_out, step_fn, batch_id):
+def reducer(pipe_in, pipe_out, step_fn, batch_id, suffix=""):
     with Filter(pipe_in) as consumer:
         consumer.run(
             tolerant(
@@ -81,6 +87,7 @@ def reducer(pipe_in, pipe_out, step_fn, batch_id):
                     pipe_out=pipe_out,
                 ),
                 batch_id,
+                suffix=suffix,
             )
         )
 
@@ -103,6 +110,7 @@ def joiner(
                     tolerant(
                         joint.left(left_fn),
                         batch_id,
+                        suffix="left",
                     )
                 )
             return
@@ -119,6 +127,7 @@ def joiner(
                     tolerant(
                         joint.right(right_fn),
                         batch_id,
+                        suffix="right",
                     )
                 )
             return
