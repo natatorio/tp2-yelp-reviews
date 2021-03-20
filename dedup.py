@@ -48,7 +48,7 @@ class Dedup:
         return batchId in self.processedBatches
 
 
-class RouterDedup(Dedup):
+class BussinessDedup(Dedup):
     def __init__(self, stageName):
         self.processedBussinessBatches = set()
         super().__init__(stageName)

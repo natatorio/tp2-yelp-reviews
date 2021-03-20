@@ -48,7 +48,7 @@ class ControlServer(HealthServer):
             if self.controlDedup.is_request_attended(requestId):
                 return make_response({"ok":"request alredy attended"}, 200)
             if self.controlDedup.are_all_pids_done():
-                self.batchControlChannel.send({"batch_id": requestId})
+                self.batchControlChannel.send({"session_id": requestId})
                 self.controlDedup.clear_pids_done()
                 self.controlDedup.set_request_attended(requestId)
                 self.controlDedup.persist_state()
