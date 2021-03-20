@@ -123,16 +123,16 @@ class ControlDedup(Dedup):
         pids = set()
         for processKey in [
             "ROUTER",
-            # "STARS5",
-            # "COMMENT",
-            # "BUSSINESS",
-            # "USERS",
-            # "HISTOGRAM",
-            # "FUNNY",
-            # "STARS5_MAPPER",
-            # "COMMENT_MAPPER",
-            # "HISTOGRAM_MAPPER",
-            # "FUNNY_MAPPER",
+            "STARS5",
+            "COMMENT",
+            "BUSSINESS",
+            "USERS",
+            "HISTOGRAM",
+            "FUNNY",
+            "STARS5_MAPPER",
+            "COMMENT_MAPPER",
+            "HISTOGRAM_MAPPER",
+            "FUNNY_MAPPER",
         ]:
             nReplicas = int(os.environ.get("N_" + processKey, 1))
             processIp = os.environ["IP_" + processKey]
