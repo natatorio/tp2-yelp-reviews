@@ -10,7 +10,7 @@ import subprocess
 from kevasto import Client
 from health_server import HealthServer
 from pipe import Pipe
-
+from dedup import ControlDedup
 
 logging.basicConfig()
 logger = logging.getLogger("Control")
@@ -31,10 +31,7 @@ class ControlServer(HealthServer):
             routing_key="control",
             queue="",
         )
-        self.name = "control"
-        self.db = Client()
-        self.__retrive_initial_state()
-        self.allPids = self.__get_all_pids()
+        self.controlDedup = ControlDedup("control")
         self.app = Flask(__name__)
         log = logging.getLogger("werkzeug")
         log.setLevel(logging.ERROR)
@@ -46,105 +43,36 @@ class ControlServer(HealthServer):
         @self.app.route("/request/<requestId>", methods = ["POST"])
         def client_request_handler(requestId):
             logger.info(f"New client request with id={requestId}")
-            logger.info(f"actual batch id {self.actualBatchId}")
-            logger.info(f"donePids: {self.donePids}")
-            if requestId in self.attendedRequests:
-                return make_response({"ok":"ok"}, 200)
-            if self.donePids == self.allPids and int(requestId) == self.actualBatchId:
+            if self.controlDedup.is_batch_processed(requestId):
+                return make_response({"error":"duplicated request id"}, 500)
+            if self.controlDedup.is_request_attended(requestId):
+                return make_response({"ok":"request alredy attended"}, 200)
+            if self.controlDedup.are_all_pids_done():
                 self.batchControlChannel.send({"batch_id": requestId})
-                self.donePids = set()
-                self.attendedRequests.add(requestId)
-                self.__persist_state()
-                return make_response({"ok":"ok"}, 200)
-            return make_response({"error":"error"}, 500)
+                self.controlDedup.clear_pids_done()
+                self.controlDedup.set_request_attended(requestId)
+                self.controlDedup.persist_state()
+                return make_response({"ok":"properly received request"}, 200)
+            return make_response({"error":"server unavailable to attend requests"}, 500)
 
         @self.app.route("/batch/<batchId>/<pid>", methods = ["POST"])
         def batch_done_handler(batchId, pid):
-            logger.info(f"actual batch id {self.actualBatchId}")
             logger.info(f"new done batch id {batchId} signal from {pid}")
-            if int(batchId) == self.actualBatchId:
-                self.donePids.add(pid)
-                logger.info(f"donePids: {self.donePids}")
-                if self.donePids == self.allPids:
-                    self.actualBatchId += 1
-                    logger.info(f"batch {batchId} completed next batch {self.actualBatchId}")
-                self.__persist_state()
+            if not self.controlDedup.is_batch_processed(batchId) and self.controlDedup.is_request_attended(batchId):
+                self.controlDedup.set_pid_done(pid)
+                if self.controlDedup.are_all_pids_done():
+                    self.controlDedup.set_processed_batch(batchId)
+                    logger.info(f"batch {batchId} completed")
+                self.controlDedup.persist_state()
             return make_response(
                 {}, 200
             )
-
-    def __retrive_initial_state(self):
-        self.donePids = self.__get_all_pids()
-        self.attendedRequests = set()
-        self.actualBatchId = 0
-        state = cast(Dict, self.db.get(self.name, "state"))
-        if state:
-            self.donePids = deserialize_set(state.get("done_pids"))
-            self.actualBatchId = state.get("actual_batch_id", 0)
-            self.attendedRequests = deserialize_set(state.get("attended_requests"))
-        else:
-            self.__persist_state()
-
-    def __persist_state(self):
-        self.db.put(
-            self.name,
-            "state",
-            {
-                "done_pids" : serialize_set(self.donePids),
-                "actual_batch_id" : self.actualBatchId,
-                "attended_requests" : serialize_set(self.attendedRequests),
-            },
-        )
-
-    def __get_all_pids(self) -> set:
-        pids = set()
-        for processKey in [
-            "ROUTER",
-            "STARS5",
-            "COMMENT",
-            "BUSSINESS",
-            "USERS",
-            "HISTOGRAM",
-            "FUNNY",
-            "STARS5_MAPPER",
-            "COMMENT_MAPPER",
-            "HISTOGRAM_MAPPER",
-            "FUNNY_MAPPER",
-        ]:
-            nReplicas = int(os.environ.get("N_" + processKey, 1))
-            processIp = os.environ["IP_" + processKey]
-            for i in range(nReplicas):
-                ip = os.environ["IP_PREFIX"] + "_" + processIp + "_" + str(i + 1)
-                pids.add(ip)
-        return pids
 
     def stop(self):
         self.batchControlChannel.close()
         exit(0)
 
 def main():
-
-    # This goes in another thread or node
-    # def build_summary(summary, data):
-    #     key, value = data
-    #     summary[key] = value
-    #     return summary
-    #
-    # summaryMaker = Filter(pipe.reports())
-    # reducer = Persistent(
-    #     cursor=Reducer(
-    #         step_fn=build_summary,
-    #         pipe_out=Formatted(
-    #             pipe.reports(),
-    #             lambda summary: ("summary", summary),
-    #         ),
-    #     ),
-    #     name="summary",
-    #     client=Client(),
-    # )
-    # summaryMaker.run(reducer)
-    #################
-
     try:
         controlServer = ControlServer()
     except Exception as e:
