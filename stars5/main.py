@@ -38,7 +38,7 @@ def main():
                     dedup_left=dedup_left,
                     dedup_right=dedup_right,
                 )
-            controlClient.batch_done(session_id, get_my_ip())
+            controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 
 

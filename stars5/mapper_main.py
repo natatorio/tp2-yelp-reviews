@@ -30,7 +30,7 @@ def main():
                     batch_id=payload["session_id"],
                     dedup=dedup,
                 )
-            controlClient.batch_done(session_id, get_my_ip())
+            controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 
 

@@ -28,8 +28,7 @@ def main():
                     batch_id=payload["session_id"],
                     dedup=dedup,
                 )
-            logger.info(f"about to notify control client batch_done {session_id} my_ip  {get_my_ip()}")
-            controlClient.batch_done(session_id, get_my_ip())
+            controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 
 

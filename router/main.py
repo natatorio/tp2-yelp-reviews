@@ -76,7 +76,7 @@ def main():
                 logger.info("batch %s", payload)
             if not dedup.is_batch_processed(payload["session_id"]):
                 consume_reviews(payload["session_id"], dedup)
-            controlClient.batch_done(session_id, get_my_ip())
+            controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 
 
