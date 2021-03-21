@@ -33,5 +33,5 @@ docker-compose-down:
 .PHONY: docker-compose-down
 
 docker-compose-logs:
-	sudo docker-compose -f docker-compose.yml logs -f control
+	sudo docker-compose -f docker-compose.yml logs -f
 .PHONY: docker-compose-logs

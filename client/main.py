@@ -4,6 +4,7 @@ import zipfile
 import pprint
 import logging
 import pipe
+import requests
 
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger("client")
@@ -50,15 +51,24 @@ def publish_file(
 
 
 def main():
-    control = pipe.pub_sub_control()
-    reports = pipe.reports()
-    business = pipe.data_business()
-    reviews = pipe.data_review()
     session_id = 1
     if len(sys.argv) > 1:
         session_id = int(sys.argv[1])
 
-    control.send({"session_id": session_id})
+    answer = False
+    while not answer:
+        try:
+            res = requests.post(f"http://tp3_control_1:80/request/{session_id}")
+            answer = True
+        except:
+            pass
+    if res.status_code == 500:
+        logger.error(res.json().get("error"))
+        exit(0)
+    logger.info(res.json().get("ok"))
+    reports = pipe.reports()
+    business = pipe.data_business()
+    reviews = pipe.data_review()
     logger.info("start session: %s", session_id)
     logger.info("loading business")
     items = publish_file(
@@ -98,6 +108,8 @@ def main():
     report = {}
     for payload, ack in reports.recv():
         ack()
+        if payload["session_id"] != session_id:
+            continue
         if payload["data"]:
             key, val = payload["data"]
             report[key] = val
@@ -109,7 +121,6 @@ def main():
     reports.close()
     business.close()
     reviews.close()
-    control.close()
 
 
 if __name__ == "__main__":

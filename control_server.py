@@ -9,7 +9,7 @@ import docker
 import subprocess
 from kevasto import Client
 from health_server import HealthServer
-from pipe import Pipe
+import pipe
 from dedup import ControlDedup
 
 logging.basicConfig()
@@ -26,11 +26,7 @@ def deserialize_set(str):
 class ControlServer(HealthServer):
 
     def __init__(self):
-        self.batchControlChannel = Pipe(
-            exchange="control",
-            routing_key="control",
-            queue="",
-        )
+        self.batchControlChannel = pipe.pub_sub_control()
         self.controlDedup = ControlDedup("control")
         self.app = Flask(__name__)
         log = logging.getLogger("werkzeug")
