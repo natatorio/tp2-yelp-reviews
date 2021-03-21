@@ -1,8 +1,10 @@
-from health_server import HealthServer
+from health_server import HealthServer, get_my_ip
 import pipe
 from pipe import Send
 import logging
 from factory import reducer, count_key
+from dedup import AggregatorDedup
+from control_server import ControlClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +40,19 @@ class UserSend(Send):
 def main():
     with HealthServer():
         control = pipe.pub_sub_control()
+        dedup = AggregatorDedup("users")
+        controlClient = ControlClient()
         for payload, ack in control.recv():
-            logger.info("batch %s", payload)
-            reducer(
-                pipe_in=pipe.user_summary(),
-                step_fn=count_key("user_id"),
-                pipe_out=UserSend(),
-                batch_id=payload["session_id"],
-            )
+            if not dedup.is_batch_processed(payload["session_id"]):
+                logger.info("batch %s", payload)
+                reducer(
+                    pipe_in=pipe.user_summary(),
+                    step_fn=count_key("user_id"),
+                    pipe_out=UserSend(),
+                    batch_id=payload["session_id"],
+                    dedup=dedup,
+                )
+            controlClient.batch_done(session_id, get_my_ip())
             ack()
 
 

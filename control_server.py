@@ -16,12 +16,29 @@ logging.basicConfig()
 logger = logging.getLogger("Control")
 logger.setLevel(logging.INFO)
 
+class ControlClient:
+    def __init__(self):
+        self.baseUrl = "http://tp3_control_1:80"
 
-def serialize_set(set):
-    return ','.join([str(i) for i in list(set)])
+    def request(self, requestId):
+        answer = False
+        while not answer:
+            try:
+                res = requests.post(f"{self.baseUrl}/request/{requestId}")
+                answer = True
+            except:
+                pass
+        return res
 
-def deserialize_set(str):
-    return set([i for i in str.split(',')])
+    def batch_done(self, batchId, pid):
+        answer = False
+        while not answer:
+            try:
+                res = requests.post(f"{self.baseUrl}/batch/{batchId}/{pid}")
+                answer = True
+            except:
+                pass
+        return res
 
 class ControlServer(HealthServer):
 
@@ -72,7 +89,7 @@ def main():
     try:
         controlServer = ControlServer()
     except Exception as e:
-        logger.exception("")
+        logger.exception("Control server stopping.....")
         raise e
     finally:
         controlServer.stop()

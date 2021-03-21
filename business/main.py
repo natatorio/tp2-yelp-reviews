@@ -1,7 +1,9 @@
-from health_server import HealthServer
+from health_server import HealthServer, get_my_ip
 import pipe
 import logging
 from factory import reducer
+from dedup import AggregatorDedup
+from control_server import ControlClient
 
 logger = logging.getLogger(__name__)
 
@@ -13,15 +15,21 @@ def main():
         return acc
 
     with HealthServer():
+        dedup = AggregatorDedup("business")
+        controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
-            logger.info("batch %s", payload)
-            reducer(
-                pipe_in=pipe.business_cities_summary(),
-                pipe_out=pipe.pub_funny_business_cities(),
-                step_fn=build_business_city_dict,
-                batch_id=payload["session_id"],
-            )
+            if not dedup.is_batch_processed(payload["session_id"]):
+                logger.info("batch %s", payload)
+                reducer(
+                    pipe_in=pipe.business_cities_summary(),
+                    pipe_out=pipe.pub_funny_business_cities(),
+                    step_fn=build_business_city_dict,
+                    batch_id=payload["session_id"],
+                    dedup=dedup,
+                )
+            logger.info(f"about to notify control client batch_done {session_id} my_ip  {get_my_ip()}")
+            controlClient.batch_done(session_id, get_my_ip())
             ack()
 
 

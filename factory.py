@@ -32,7 +32,7 @@ def use_value(acc, right):
     return right
 
 
-def tolerant(cursor, batch_id, suffix=""):
+def tolerant(cursor, batch_id, dedup, suffix=""):
     client = Client()
     name = node_name() + suffix
     return Keep(
@@ -46,6 +46,7 @@ def tolerant(cursor, batch_id, suffix=""):
             client,
         ),
         batch_id,
+        dedup,
     )
 
 
@@ -54,6 +55,7 @@ def mapper(
     pipe_out,
     map_fn,
     batch_id,
+    dedup,
     start_fn=lambda: None,
 ):
     with Filter(pipe_in) as consumer:
@@ -65,6 +67,7 @@ def mapper(
                     pipe_out=pipe_out,
                 ),
                 batch_id,
+                dedup,
             )
         )
 
@@ -73,12 +76,13 @@ def sink(
     pipe_in,
     observer,
     batch_id,
+    dedup,
 ):
     with Filter(pipe_in) as consumer:
-        consumer.run(tolerant(Notify(observer=observer), batch_id, suffix="sink"))
+        consumer.run(tolerant(Notify(observer=observer), batch_id, dedup, suffix="sink"))
 
 
-def reducer(pipe_in, pipe_out, step_fn, batch_id, suffix=""):
+def reducer(pipe_in, pipe_out, step_fn, batch_id, dedup, suffix=""):
     with Filter(pipe_in) as consumer:
         consumer.run(
             tolerant(
@@ -87,6 +91,7 @@ def reducer(pipe_in, pipe_out, step_fn, batch_id, suffix=""):
                     pipe_out=pipe_out,
                 ),
                 batch_id,
+                dedup,
                 suffix=suffix,
             )
         )
@@ -99,6 +104,8 @@ def joiner(
     right_fn,
     pipe_out,
     join_fn,
+    dedup_left,
+    dedup_right,
     batch_id,
 ):
     joint = Join(join_fn, pipe_out)
@@ -110,6 +117,7 @@ def joiner(
                     tolerant(
                         joint.left(left_fn),
                         batch_id,
+                        dedup_left,
                         suffix="left",
                     )
                 )
@@ -127,6 +135,7 @@ def joiner(
                     tolerant(
                         joint.right(right_fn),
                         batch_id,
+                        dedup_right,
                         suffix="right",
                     )
                 )

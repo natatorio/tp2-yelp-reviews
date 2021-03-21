@@ -4,7 +4,7 @@ import zipfile
 import pprint
 import logging
 import pipe
-import requests
+from control_server import ControlClient
 
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger("client")
@@ -55,13 +55,7 @@ def main():
     if len(sys.argv) > 1:
         session_id = int(sys.argv[1])
 
-    answer = False
-    while not answer:
-        try:
-            res = requests.post(f"http://tp3_control_1:80/request/{session_id}")
-            answer = True
-        except:
-            pass
+    res = ControlClient().request(session_id)
     if res.status_code == 500:
         logger.error(res.json().get("error"))
         exit(0)

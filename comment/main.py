@@ -1,7 +1,9 @@
-from health_server import HealthServer
+from health_server import HealthServer, get_my_ip
 import pipe
 import logging
 from factory import joiner, use_value
+from dedup import AggregatorDedup
+from control_server import ControlClient
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +29,29 @@ def main():
         )
 
     with HealthServer():
+        dedup_left = AggregatorDedup("comment_left")
+        dedup_right = AggregatorDedup("comment_right")
+        controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
-            logger.info("batch %s", payload)
-            joiner(
-                pipe_left=pipe.comment_summary(),
-                left_fn=user_comment_counter,
-                pipe_right=pipe.user_count_5(),
-                right_fn=use_value,
-                join_fn=join,
-                pipe_out=pipe.reports(),
-                batch_id=payload["session_id"],
-            )
+            if not (
+                dedup_left.is_batch_processed(payload["session_id"])
+                and
+                dedup_right.is_batch_processed(payload["session_id"])
+            ):
+                logger.info("batch %s", payload)
+                joiner(
+                    pipe_left=pipe.comment_summary(),
+                    left_fn=user_comment_counter,
+                    pipe_right=pipe.user_count_5(),
+                    right_fn=use_value,
+                    join_fn=join,
+                    pipe_out=pipe.reports(),
+                    batch_id=payload["session_id"],
+                    dedup_right=dedup_right,
+                    dedup_left=dedup_left,
+                )
+            controlClient.batch_done(session_id, get_my_ip())
             ack()
 
 

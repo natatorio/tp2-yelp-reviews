@@ -1,14 +1,16 @@
-from health_server import HealthServer
+from health_server import HealthServer, get_my_ip
 import pipe
 from pipe import Scatter
 import logging
 from factory import mapper
+from dedup import Dedup
+from control_server import ControlClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def consume_reviews(batch_id):
+def consume_reviews(batch_id, dedup):
     def funny(reviews):
         return [
             {
@@ -34,6 +36,7 @@ def consume_reviews(batch_id):
         pipe_in=pipe.data_review(),
         map_fn=lambda x: x,
         batch_id=batch_id,
+        dedup=dedup,
         pipe_out=Scatter(
             [
                 pipe.Formatted(pipe.user_summary(), users),
@@ -46,7 +49,9 @@ def consume_reviews(batch_id):
     )
 
 
-def consume_business(batch_id):
+
+
+def consume_business(batch_id, dedup):
     def route_business(business):
         return [{"city": b["city"], "business_id": b["business_id"]} for b in business]
 
@@ -55,16 +60,23 @@ def consume_business(batch_id):
         map_fn=route_business,
         pipe_out=pipe.business_cities_summary(),
         batch_id=batch_id,
+        dedup=dedup,
     )
 
 
 def main():
     with HealthServer():
+        dedup = Dedup("router_bussiness")
+        dedupBussiness = Dedup("router")
+        controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
-            logger.info("batch %s", payload)
-            consume_business(payload["session_id"])
-            consume_reviews(payload["session_id"])
+            if not dedupBussiness.is_batch_processed(payload["session_id"]):
+                consume_business(payload["session_id"], dedupBussiness)
+                logger.info("batch %s", payload)
+            if not dedup.is_batch_processed(payload["session_id"]):
+                consume_reviews(payload["session_id"], dedup)
+            controlClient.batch_done(session_id, get_my_ip())
             ack()
 
 

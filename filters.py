@@ -320,10 +320,11 @@ class Dedup:
 class Keep(Cursor):
     is_done = False
 
-    def __init__(self, cursor, batch_id) -> None:
+    def __init__(self, cursor, batch_id, dedup=None) -> None:
         super().__init__()
         self.cursor = cursor
         self.batch_id = batch_id
+        self.dedup = dedup
 
     def setup(self, caller):
         return self.cursor.setup(caller)
@@ -332,12 +333,13 @@ class Keep(Cursor):
         return self.cursor.start()
 
     def step(self, acc, payload) -> object:
-        if self.batch_id == payload["session_id"]:
+        if not self.dedup.is_batch_processed(payload["session_id"]):
             return self.cursor.step(acc, payload)
         return acc
 
     def end(self, acc, context):
         self.cursor.end(acc, context)
+        self.dedup.set_processed_batch(self.batch_id)
         self.is_done = self.cursor.is_done
 
     def close(self):

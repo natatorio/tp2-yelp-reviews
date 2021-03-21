@@ -13,7 +13,7 @@ class Dedup:
     def __init__(self, stageName):
         self.processedBatches = set()
         self.db = Client()
-        self.name = stageName
+        self.name = stageName + "_dedup"
         self.retrieve_initial_state()
 
     def retrieve_initial_state(self):
@@ -48,7 +48,7 @@ class Dedup:
         return batchId in self.processedBatches
 
 
-class BussinessDedup(Dedup):
+class BusinessDedup(Dedup):
     def __init__(self, stageName):
         self.processedBussinessBatches = set()
         super().__init__(stageName)
