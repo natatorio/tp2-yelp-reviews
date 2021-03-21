@@ -63,7 +63,7 @@ class HealthServer:
         return self
 
     def __exit__(self, ex_type, ex, trace):
-        self.stop()
+        return False
 
 
 class LeaderServer(HealthServer):
