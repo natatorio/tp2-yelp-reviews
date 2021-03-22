@@ -46,6 +46,7 @@ def main():
                     batch_id=payload["session_id"],
                     dedup=dedupBussiness,
                 )
+            bucket_name = get_my_ip()
             dedup.db.log_drop(bucket_name, None)
             dedup.db.log_drop(bucket_name + "_processed", None)
             dedup.db.delete(

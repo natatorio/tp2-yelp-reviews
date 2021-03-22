@@ -100,7 +100,7 @@ def main():
 
     logger.info("waiting report")
     report = {}
-    with open("data/runs/run.txt", "w") as text_file:
+    with open("data/runs/check.txt", "w") as text_file:
         for payload, ack in reports.recv():
             ack()
             if payload["session_id"] != session_id:
