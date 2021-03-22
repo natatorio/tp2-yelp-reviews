@@ -47,12 +47,13 @@ def main():
                     batch_id=payload["session_id"],
                     dedup=dedupBussiness,
                 )
-            # if bucket_name:
-            #     dedup.db.log_drop(bucket_name, None)
-            #     dedup.db.delete(
-            #         bucket_name,
-            #         "state",
-            #     )
+            if bucket_name:
+                dedup.db.log_drop(bucket_name, None)
+                dedup.db.log_drop(bucket_name + "_processed", None)
+                dedup.db.delete(
+                    bucket_name,
+                    "state",
+                )
             controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 

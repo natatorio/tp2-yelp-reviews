@@ -121,8 +121,8 @@ def joiner(
     joint = Join(join_fn, pipe_out)
 
     name = node_name()
-    left_name = name + "left"
-    right_name = name + "right"
+    left_name = name + "_left"
+    right_name = name + "_right"
 
     def consume_left():
         try:
