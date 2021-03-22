@@ -100,16 +100,18 @@ def main():
 
     logger.info("waiting report")
     report = {}
-    for payload, ack in reports.recv():
-        ack()
-        if payload["session_id"] != session_id:
-            continue
-        if payload["data"]:
-            key, val = payload["data"]
-            report[key] = val
-            logger.info("%s = %s", key, pprint.pformat(val))
-        if len(report) >= 5:
-            break
+    with open("data/runs/run.txt", "w") as text_file:
+        for payload, ack in reports.recv():
+            ack()
+            if payload["session_id"] != session_id:
+                continue
+            if payload["data"]:
+                key, val = payload["data"]
+                report[key] = val
+                logger.info("%s = %s", key, pprint.pformat(val))
+                text_file.write(f"{key} = {pprint.pformat(val)}\n")
+            if len(report) >= 5:
+                break
 
     logger.info("end session %s", session_id)
     reports.close()
