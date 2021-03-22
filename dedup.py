@@ -110,7 +110,7 @@ class ControlDedup(Dedup):
         self.donePids = set()
 
     def are_all_pids_done(self):
-        print(f"pids done {self.donePids}   all pids {self.__get_all_pids()}")
+        print(f"pids done {self.donePids}")
         return self.donePids == self.__get_all_pids()
 
     def set_request_attended(self, requestId):

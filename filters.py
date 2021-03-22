@@ -236,6 +236,7 @@ class Persistent(Cursor):
         self.seq_num = state["seq_num"]
         acc = state["acc"]
         items = self.db.log_fetch(self.name, self.seq_num)
+        self.cursor.fetch()
         for item in items:
             if item.get("data") is None:
                 self.end(acc, item)
@@ -254,8 +255,11 @@ class Persistent(Cursor):
             return self.start_from_checkpoint(state)
 
     def step(self, acc, payload) -> object:
-        self.db.log_append(self.name, payload)
-        acc = self.cursor.step(acc, payload)
+        next_acc = self.cursor.step(acc, payload)
+        if next_acc:
+            self.db.log_append(self.name, payload)
+            acc = next_acc
+            self.cursor.commit_step(payload)
         if self.seq_num % CHECKPOINT == 0:
             payload.pop("data", None)
             self.db.put(
@@ -298,23 +302,29 @@ class Dedup:
         return self.cursor.setup(caller)
 
     def start(self) -> object:
+        self.db.log_drop(self.name, 0)
+        processed = []
+        self.processed = set(processed)
+        return self.cursor.start()
+
+    def fetch(self):
         processed = self.db.log_fetch(self.name, 0)
         if processed is None:
             processed = []
         self.processed = set(processed)
-        return self.cursor.start()
 
     def step(self, acc, payload) -> object:
         if payload["id"] in self.processed:
-            return acc
+            return None
         acc = self.cursor.step(acc, payload)
+        return acc
+
+    def commit_step(self, payload):
         self.processed.add(payload["id"])
         self.db.log_append(self.name, payload["id"])
-        return acc
 
     def end(self, acc, payload):
         self.cursor.end(acc, payload)
-        self.db.log_drop(self.name, None)
         self.is_done = self.cursor.is_done
 
     def close(self):
@@ -345,6 +355,7 @@ class Keep(Cursor):
     def end(self, acc, context):
         self.cursor.end(acc, context)
         self.dedup.set_processed_batch(self.batch_id)
+        self.dedup.persist_state()
         self.is_done = self.cursor.is_done
 
     def close(self):

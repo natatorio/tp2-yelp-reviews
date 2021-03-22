@@ -54,6 +54,7 @@ def main():
                     dedup=dedup,
                 )
             if bucket_name:
+                dedup.db.log_drop(bucket_name + "_processed", None)
                 dedup.db.log_drop(bucket_name, None)
                 dedup.db.delete(
                     bucket_name,

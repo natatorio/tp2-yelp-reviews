@@ -53,11 +53,13 @@ def main():
                     dedup_left=dedup_left,
                 )
             if left_name or right_name:
+                dedup_left.db.log_drop(left_name + "_processed", None)
                 dedup_left.db.log_drop(left_name, None)
                 dedup_left.db.delete(
                     left_name,
                     "state",
                 )
+                dedup_right.db.log_drop(right_name + "_processed", None)
                 dedup_right.db.log_drop(right_name, None)
                 dedup_right.db.delete(
                     right_name,
