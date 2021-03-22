@@ -83,13 +83,18 @@ class Exchange(Send):
         self.send_to(self.exchange, self.routing_key, data)
 
     def send_to(self, exchange, routing_key, data):
-        if self.channel is None:
-            self.channel = connection.channel()
-        return self.channel.basic_publish(
-            exchange=exchange,
-            routing_key=routing_key,
-            body=json.dumps(data),
-        )
+        try:
+            if self.channel is None:
+                self.channel = connection.channel()
+            return self.channel.basic_publish(
+                exchange=exchange,
+                routing_key=routing_key,
+                body=json.dumps(data),
+            )
+        except (AMQPConnectionError, ChannelClosed) as e:
+            logger.exception(str(e))
+            self.channel = None
+            raise
 
     def close(self):
         if self.channel is not None:
