@@ -274,9 +274,13 @@ class Persistent(Cursor):
     def end(self, acc, payload):
         self.db.log_append(self.name, payload)
         self.cursor.end(acc, payload)
-        self.db.delete(
+        self.db.put(
             self.name,
             "state",
+            {
+                "acc": acc,
+                "seq_num": self.seq_num,
+            },
         )
 
     def close(self):
@@ -335,6 +339,7 @@ class Keep(Cursor):
     def step(self, acc, payload) -> object:
         if not self.dedup.is_batch_processed(payload["session_id"]):
             return self.cursor.step(acc, payload)
+        logger.info("skip")
         return acc
 
     def end(self, acc, context):

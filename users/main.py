@@ -43,15 +43,23 @@ def main():
         dedup = AggregatorDedup("users")
         controlClient = ControlClient()
         for payload, ack in control.recv():
+            bucket_name = None
             if not dedup.is_batch_processed(payload["session_id"]):
                 logger.info("batch %s", payload)
-                reducer(
+                bucket_name = reducer(
                     pipe_in=pipe.user_summary(),
                     step_fn=count_key("user_id"),
                     pipe_out=UserSend(),
                     batch_id=payload["session_id"],
                     dedup=dedup,
                 )
+            if bucket_name:
+                dedup.db.log_drop(bucket_name, None)
+                dedup.db.delete(
+                    bucket_name,
+                    "state",
+                )
+
             controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 

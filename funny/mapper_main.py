@@ -10,7 +10,7 @@ logger.setLevel(logging.INFO)
 
 
 def main():
-    def funny(business_city, batch_id):
+    def funny(business_city, batch_id, dedup):
         logger.info("start mapping funny business")
 
         def map_business(reviews):
@@ -34,16 +34,25 @@ def main():
         dedupBussiness = Dedup("funny_mapper_bussiness")
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
+            bucket_name = None
             if not dedup.is_batch_processed(payload["session_id"]):
                 logger.info("batch %s", payload)
-                sink(
+                bucket_name = sink(
                     pipe_in=pipe.sub_funny_business_cities(),
                     observer=lambda business: funny(
-                        business_city=business, batch_id=payload["session_id"]
+                        business_city=business,
+                        batch_id=payload["session_id"],
+                        dedup=dedup,
                     ),
                     batch_id=payload["session_id"],
                     dedup=dedupBussiness,
                 )
+            # if bucket_name:
+            #     dedup.db.log_drop(bucket_name, None)
+            #     dedup.db.delete(
+            #         bucket_name,
+            #         "state",
+            #     )
             controlClient.batch_done(payload["session_id"], get_my_ip())
             ack()
 

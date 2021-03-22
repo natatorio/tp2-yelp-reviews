@@ -32,9 +32,8 @@ def use_value(acc, right):
     return right
 
 
-def tolerant(cursor, batch_id, dedup, suffix=""):
+def tolerant(cursor, batch_id, dedup, name):
     client = Client()
-    name = node_name() + suffix
     return Keep(
         Persistent(
             name,
@@ -78,11 +77,21 @@ def sink(
     batch_id,
     dedup,
 ):
+    name = node_name() + "sink"
     with Filter(pipe_in) as consumer:
-        consumer.run(tolerant(Notify(observer=observer), batch_id, dedup, suffix="sink"))
+        consumer.run(
+            tolerant(
+                Notify(observer=observer),
+                batch_id,
+                dedup,
+                name,
+            )
+        )
+    return name
 
 
 def reducer(pipe_in, pipe_out, step_fn, batch_id, dedup, suffix=""):
+    name = node_name() + suffix
     with Filter(pipe_in) as consumer:
         consumer.run(
             tolerant(
@@ -92,9 +101,10 @@ def reducer(pipe_in, pipe_out, step_fn, batch_id, dedup, suffix=""):
                 ),
                 batch_id,
                 dedup,
-                suffix=suffix,
+                name,
             )
         )
+    return name
 
 
 def joiner(
@@ -110,6 +120,10 @@ def joiner(
 ):
     joint = Join(join_fn, pipe_out)
 
+    name = node_name()
+    left_name = name + "left"
+    right_name = name + "right"
+
     def consume_left():
         try:
             with Filter(pipe_left) as consumer:
@@ -118,7 +132,7 @@ def joiner(
                         joint.left(left_fn),
                         batch_id,
                         dedup_left,
-                        suffix="left",
+                        left_name,
                     )
                 )
             return
@@ -136,7 +150,7 @@ def joiner(
                         joint.right(right_fn),
                         batch_id,
                         dedup_right,
-                        suffix="right",
+                        right_name,
                     )
                 )
             return
@@ -150,6 +164,7 @@ def joiner(
     thread.start()
     consume_right()
     thread.join()
+    return (left_name, right_name)
 
 
 import debug
