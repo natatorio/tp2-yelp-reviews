@@ -15,10 +15,9 @@ def main():
         controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
-            bucket_name = None
             if not dedup.is_batch_processed(payload["session_id"]):
                 logger.info("batch %s", payload)
-                bucket_name = reducer(
+                reducer(
                     pipe_in=pipe.histogram_summary(),
                     step_fn=count_key("weekday"),
                     pipe_out=Formatted(
@@ -28,14 +27,14 @@ def main():
                     batch_id=payload["session_id"],
                     dedup=dedup,
                 )
-            if bucket_name:
-                dedup.db.log_drop(bucket_name + "_processed", None)
-                dedup.db.log_drop(bucket_name, None)
-                dedup.db.delete(
-                    bucket_name,
-                    "state",
-                )
-            controlClient.batch_done(payload["session_id"], get_my_ip())
+            bucket_name = get_my_ip()
+            dedup.db.log_drop(bucket_name + "_processed", None)
+            dedup.db.log_drop(bucket_name, None)
+            dedup.db.delete(
+                bucket_name,
+                "state",
+            )
+            controlClient.batch_done(payload["session_id"], bucket_name)
             ack()
 
 

@@ -21,14 +21,12 @@ def main():
         controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
-            left_name = None
-            right_name = None
             if not (
                 dedup_left.is_batch_processed(payload["session_id"])
                 and dedup_right.is_batch_processed(payload["session_id"])
             ):
                 logger.info("batch %s", payload)
-                [left_name, right_name] = joiner(
+                joiner(
                     pipe_left=pipe.star5_summary(),
                     left_fn=count_key("user_id"),
                     pipe_right=pipe.user_count_50(),
@@ -39,6 +37,9 @@ def main():
                     dedup_left=dedup_left,
                     dedup_right=dedup_right,
                 )
+            bucket_name = get_my_ip()
+            left_name = bucket_name + "_left"
+            right_name = bucket_name + "_right"
             if left_name or right_name:
                 dedup_left.db.log_drop(left_name + "_processed", None)
                 dedup_left.db.log_drop(left_name, None)
@@ -52,7 +53,7 @@ def main():
                     right_name,
                     "state",
                 )
-            controlClient.batch_done(payload["session_id"], get_my_ip())
+            controlClient.batch_done(payload["session_id"], bucket_name)
             ack()
 
 
