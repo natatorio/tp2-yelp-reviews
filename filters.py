@@ -242,8 +242,11 @@ class Persistent(Cursor):
                 self.end(acc, item)
                 self.is_done = self.cursor.is_done
             else:
-                acc = self.cursor.step(acc, item)
-                self.seq_num += 1
+                next_acc = self.cursor.step(acc, item)
+                if next_acc:
+                    acc = next_acc
+                    self.cursor.commit_step(item)
+                    self.seq_num += 1
         return acc
 
     def start(self) -> object:
