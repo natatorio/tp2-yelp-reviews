@@ -20,19 +20,18 @@ def main():
                 if r["funny"] != 0
             ]
 
-        if not dedup.is_batch_processed(batch_id):
-            mapper(
-                pipe_in=pipe.map_funny(),
-                map_fn=map_business,
-                pipe_out=pipe.funny_summary(),
-                batch_id=batch_id,
-                dedup=dedup,
-            )
+        mapper(
+            pipe_in=pipe.map_funny(),
+            map_fn=map_business,
+            pipe_out=pipe.funny_summary(),
+            batch_id=batch_id,
+            dedup=dedup,
+        )
 
     with HealthServer():
         dedup = Dedup(get_my_ip())
         controlClient = ControlClient()
-        dedupBussiness = Dedup(get_my_ip() + "_bussiness")
+        dedupBusiness = Dedup(get_my_ip() + "_business")
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
             if not dedup.is_batch_processed(payload["session_id"]):
@@ -45,8 +44,14 @@ def main():
                         dedup=dedup,
                     ),
                     batch_id=payload["session_id"],
-                    dedup=dedupBussiness,
+                    dedup=dedupBusiness,
                 )
+            # elif not dedup.is_batch_processed(payload["session_id"]):
+            #     funny(
+            #         business_city=business,
+            #         batch_id=payload["session_id"],
+            #         dedup=dedup,
+            #     )
             bucket_name = get_my_ip()
             dedup.db.log_drop(bucket_name + "_sink", None)
             dedup.db.log_drop(bucket_name + "_processed", None)

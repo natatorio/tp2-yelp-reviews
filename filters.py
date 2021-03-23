@@ -252,7 +252,10 @@ class Persistent(Cursor):
         if state.get("eof", False):
             self.is_done = True
             return acc
-        items = self.db.log_fetch(self.name, self.seq_num)
+        try:
+            items = self.db.log_fetch(self.name, self.seq_num)
+        except:
+            return acc
         self.fetch()
         temporary_processed = set([])
         for item in items:
@@ -299,6 +302,7 @@ class Persistent(Cursor):
     def end(self, acc, payload):
         self.db.log_append(self.name, payload)
         self.cursor.end(acc, payload)
+        self.commit_step(payload)
         self.db.put(
             self.name,
             "state",

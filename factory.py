@@ -82,7 +82,6 @@ def sink(
                 name,
             )
         )
-    return name
 
 
 def reducer(pipe_in, pipe_out, step_fn, batch_id, dedup, suffix=""):
@@ -99,7 +98,6 @@ def reducer(pipe_in, pipe_out, step_fn, batch_id, dedup, suffix=""):
                 name,
             )
         )
-    return name
 
 
 def joiner(
@@ -159,7 +157,6 @@ def joiner(
     thread.start()
     consume_right()
     thread.join()
-    return (left_name, right_name)
 
 
 import debug
