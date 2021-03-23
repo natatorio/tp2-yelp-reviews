@@ -196,8 +196,14 @@ class Join:
 
 
 class Notify(Cursor):
-    def __init__(self, observer) -> None:
+    def __init__(self, observer, dedup, batch_id) -> None:
         self.observer = observer
+        self.dedup = dedup
+        self.batch_id = batch_id
+
+    def setup(self, caller):
+        if self.dedup.is_batch_processed(self.batch_id):
+            self.is_done = True
 
     def step(self, acc, payload) -> object:
         return payload["data"]

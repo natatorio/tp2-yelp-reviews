@@ -76,7 +76,7 @@ def sink(
     with Filter(pipe_in) as consumer:
         consumer.run(
             tolerant(
-                Notify(observer=observer),
+                Notify(observer=observer, dedup=dedup, batch_id=batch_id),
                 batch_id,
                 dedup,
                 name,
