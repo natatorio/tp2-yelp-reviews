@@ -66,8 +66,8 @@ def consume_business(batch_id, dedup):
 
 def main():
     with HealthServer():
-        dedup = Dedup("router_bussiness")
-        dedupBussiness = Dedup("router")
+        dedup = Dedup(get_my_ip() + "_bussiness")
+        dedupBussiness = Dedup(get_my_ip())
         controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():

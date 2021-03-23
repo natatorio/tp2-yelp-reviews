@@ -21,7 +21,7 @@ def main():
         ]
 
     with HealthServer():
-        dedup = Dedup("histogram_mapper")
+        dedup = Dedup(get_my_ip())
         controlClient = ControlClient()
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():

@@ -29,9 +29,9 @@ def main():
         )
 
     with HealthServer():
-        dedup = Dedup("funny_mapper")
+        dedup = Dedup(get_my_ip())
         controlClient = ControlClient()
-        dedupBussiness = Dedup("funny_mapper_bussiness")
+        dedupBussiness = Dedup(get_my_ip() + "_bussiness")
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
             if not dedup.is_batch_processed(payload["session_id"]):
