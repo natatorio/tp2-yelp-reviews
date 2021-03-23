@@ -20,13 +20,14 @@ def main():
                 if r["funny"] != 0
             ]
 
-        mapper(
-            pipe_in=pipe.map_funny(),
-            map_fn=map_business,
-            pipe_out=pipe.funny_summary(),
-            batch_id=batch_id,
-            dedup=dedup,
-        )
+        if not dedup.is_batch_processed(batch_id):
+            mapper(
+                pipe_in=pipe.map_funny(),
+                map_fn=map_business,
+                pipe_out=pipe.funny_summary(),
+                batch_id=batch_id,
+                dedup=dedup,
+            )
 
     with HealthServer():
         dedup = Dedup(get_my_ip())
@@ -34,7 +35,10 @@ def main():
         dedupBusiness = Dedup(get_my_ip() + "_business")
         control = pipe.pub_sub_control()
         for payload, ack in control.recv():
-            if not dedup.is_batch_processed(payload["session_id"]):
+            if not (
+                dedup.is_batch_processed(payload["session_id"])
+                and dedupBusiness.is_batch_processed(payload["session_id"])
+            ):
                 logger.info("batch %s", payload)
                 sink(
                     pipe_in=pipe.sub_funny_business_cities(),

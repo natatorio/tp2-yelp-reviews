@@ -210,6 +210,7 @@ class Notify(Cursor):
 
     def end(self, acc, payload):
         self.observer(acc)
+        self.is_done = True
 
 
 CHECKPOINT = int(os.environ.get("CHECKPOINT", 100))
