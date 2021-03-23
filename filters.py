@@ -246,17 +246,22 @@ class Persistent(Cursor):
         self.processed = set(processed)
 
     def start_from_checkpoint(self, state):
-        self.seq_num = state["seq_num"]
+        self.seq_num = state["seq_num"] + 1
         logger.info("start from checkpoint at %s", self.seq_num)
         acc = state["acc"]
+        if state.get("eof", False):
+            self.is_done = True
+            return acc
         items = self.db.log_fetch(self.name, self.seq_num)
         self.fetch()
+        temporary_processed = set([])
         for item in items:
             if item.get("data") is None:
                 self.end(acc, item)
                 self.is_done = self.cursor.is_done
-            else:
+            elif not item["id"] in temporary_processed:
                 acc = self.cursor.step(acc, item)
+                temporary_processed.add(item["id"])
                 self.commit_step(item)
                 self.seq_num += 1
         return acc
@@ -271,6 +276,7 @@ class Persistent(Cursor):
 
     def step(self, acc, payload) -> object:
         if payload["id"] in self.processed:
+            logger.info("skip dup %s", payload["id"])
             return acc
         acc = self.cursor.step(acc, payload)
         self.db.log_append(self.name, payload)
@@ -299,6 +305,7 @@ class Persistent(Cursor):
             {
                 "acc": acc,
                 "seq_num": self.seq_num,
+                "eof": True,
             },
         )
 
