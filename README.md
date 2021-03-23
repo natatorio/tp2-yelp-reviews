@@ -23,7 +23,7 @@ make docker-compose-down
 </pre>
 Para disparar requests:
 <pre>
-./demo.sh <request_id>
+./demo.sh "request_id"
 </pre>
 Despues de procesar una request se puede guardar el resultado en otro archivo
 <pre>
