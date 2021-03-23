@@ -227,6 +227,10 @@ def add_raft_routes(app, raft: Raft):
     def healthcheck():
         return ("", 204)
 
+    @app.errorhandler(Exception)
+    def handle_error(e):
+        return (str(e), 500)
+
     return raft
 
 

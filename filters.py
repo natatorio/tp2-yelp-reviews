@@ -214,12 +214,19 @@ class Persistent(Cursor):
         self.cursor = cursor
         self.db = client
         self.name = name
+        self.processed = set()
+        self.processed_name = name + "_processed"
 
     def setup(self, caller):
         return self.cursor.setup(caller)
 
     def start_from_scratch(self):
+        logger.info("start from scratch")
         self.seq_num = 0
+
+        self.db.log_drop(self.processed_name, None)
+        self.processed = set([])
+
         self.db.log_drop(self.name, None)
         acc = self.cursor.start()
         self.db.put(
@@ -232,11 +239,18 @@ class Persistent(Cursor):
         )
         return acc
 
+    def fetch(self):
+        processed = self.db.log_fetch(self.processed_name, 0)
+        if processed is None:
+            processed = []
+        self.processed = set(processed)
+
     def start_from_checkpoint(self, state):
         self.seq_num = state["seq_num"]
+        logger.info("start from checkpoint at %s", self.seq_num)
         acc = state["acc"]
         items = self.db.log_fetch(self.name, self.seq_num)
-        self.cursor.fetch()
+        self.fetch()
         for item in items:
             if item.get("data") is None:
                 self.end(acc, item)
@@ -258,11 +272,11 @@ class Persistent(Cursor):
             return self.start_from_checkpoint(state)
 
     def step(self, acc, payload) -> object:
-        next_acc = self.cursor.step(acc, payload)
-        if next_acc:
-            self.db.log_append(self.name, payload)
-            acc = next_acc
-            self.cursor.commit_step(payload)
+        if payload["id"] in self.processed:
+            return acc
+        acc = self.cursor.step(acc, payload)
+        self.db.log_append(self.name, payload)
+        self.commit_step(payload)
         if self.seq_num % CHECKPOINT == 0:
             payload.pop("data", None)
             self.db.put(
@@ -290,45 +304,9 @@ class Persistent(Cursor):
             },
         )
 
-    def close(self):
-        self.cursor.close()
-
-
-class Dedup:
-    def __init__(self, name: str, cursor: Cursor, client: Client) -> None:
-        self.cursor = cursor
-        self.processed = set()
-        self.db = client
-        self.name = name + "_processed"
-
-    def setup(self, caller):
-        return self.cursor.setup(caller)
-
-    def start(self) -> object:
-        self.db.log_drop(self.name, 0)
-        processed = []
-        self.processed = set(processed)
-        return self.cursor.start()
-
-    def fetch(self):
-        processed = self.db.log_fetch(self.name, 0)
-        if processed is None:
-            processed = []
-        self.processed = set(processed)
-
-    def step(self, acc, payload) -> object:
-        if payload["id"] in self.processed:
-            return None
-        acc = self.cursor.step(acc, payload)
-        return acc
-
     def commit_step(self, payload):
         self.processed.add(payload["id"])
-        self.db.log_append(self.name, payload["id"])
-
-    def end(self, acc, payload):
-        self.cursor.end(acc, payload)
-        self.is_done = self.cursor.is_done
+        self.db.log_append(self.processed_name, payload["id"])
 
     def close(self):
         self.cursor.close()

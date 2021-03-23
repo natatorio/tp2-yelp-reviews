@@ -1,9 +1,8 @@
 import os
 from threading import Thread
 
-from pika.exceptions import ChannelClosed
 from kevasto import Client
-from filters import Dedup, Filter, Join, Keep, Mapper, Notify, Persistent, Reducer
+from filters import Filter, Join, Keep, Mapper, Notify, Persistent, Reducer
 import logging
 import docker
 
@@ -37,11 +36,7 @@ def tolerant(cursor, batch_id, dedup, name):
     return Keep(
         Persistent(
             name,
-            Dedup(
-                name,
-                cursor,
-                client,
-            ),
+            cursor,
             client,
         ),
         batch_id,
