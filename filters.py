@@ -249,10 +249,11 @@ class Persistent(Cursor):
         self.seq_num = state["seq_num"]
         logger.info("start from checkpoint at %s", self.seq_num)
         acc = state["acc"]
+        items = self.db.log_fetch(self.name, self.seq_num)
         if state.get("eof", False):
+            self.cursor.end(acc, items[0])
             self.is_done = True
             return acc
-        items = self.db.log_fetch(self.name, self.seq_num)
         items = items[1:]
         self.seq_num += 1
         self.fetch()
