@@ -16,19 +16,20 @@ El directorio padre donde se encuentre clonado el repositorio debe cumplir la si
 Los archivos van comprimidos
 
 Comandos para manejar el servidor:
-
+<pre>
 make docker-compose-up
 make docker-compose-logs
 make docker-compose-down
-
+</pre>
 Para disparar requests:
-
+<pre>
 ./demo.sh <request_id>
-
+</pre>
 Despues de procesar una request se puede guardar el resultado en otro archivo
-
+<pre>
 cp ../data/runs/check.txt ../data/runs/run.txt
-
+</pre>
 Para poder compararlo con resultados de nuevas requests
-
+<pre>
 diff ../data/runs/run.txt ../data/runs/check.txt
+</pre>
