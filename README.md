@@ -1,17 +1,17 @@
 # tp2-yelp-reviews
 
 Pasos para ejecutar el tp:
-
+<pre>
 El directorio padre donde se encuentre clonado el repositorio debe cumplir la siguiente estructura:
+|  
+|__ tp2-yelp-reviews/  
+|       |...   
 |
-|__ tp2-yelp-reviews/
-|       |... 
-|
-|__ data/
-      |__ runs/
-      |__ yelp_academic_dataset_review.json.zip
-      |__ yelp_academic_dataset_business.json.zip
-
+|__ data/  
+      |__ runs/  
+      |__ yelp_academic_dataset_review.json.zip  
+      |__ yelp_academic_dataset_business.json.zip  
+</pre>
 
 Los archivos van comprimidos
 
