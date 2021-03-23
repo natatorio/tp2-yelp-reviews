@@ -20,13 +20,14 @@ def main():
                 if r["funny"] != 0
             ]
 
-        mapper(
-            pipe_in=pipe.map_funny(),
-            map_fn=map_business,
-            pipe_out=pipe.funny_summary(),
-            batch_id=batch_id,
-            dedup=dedup,
-        )
+        if not dedup.is_batch_processed(batch_id):
+            mapper(
+                pipe_in=pipe.map_funny(),
+                map_fn=map_business,
+                pipe_out=pipe.funny_summary(),
+                batch_id=batch_id,
+                dedup=dedup,
+            )
 
     with HealthServer():
         dedup = Dedup(get_my_ip())
