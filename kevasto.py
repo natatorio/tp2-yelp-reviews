@@ -259,11 +259,23 @@ def retry(times, func) -> Union[Dict, None]:
 
 
 class Client:
-    def __init__(self, host="tp3_kevasto_1") -> None:
-        self.host = host
+    def __init__(self, hosts="tp3_kevasto_1,tp3_kevasto_2,tp3_kevasto_3") -> None:
+        self.fallbacks = hosts.split(",")
         self.session = requests.session()
+        self.host = self.fallbacks[0]
+
+    def with_fallback(self, func):
+        def wrapper(*args, **kwargs):
+            for fallback in self.fallbacks:
+                try:
+                    return func(*args, **kwargs)
+                except ConnectionError:
+                    self.host = fallback
+
+        return wrapper
 
     def delete(self, bucket, key):
+        @self.with_fallback
         def __delete__(url):
             res = self.session.delete(url)
             content = res.json()
@@ -278,6 +290,7 @@ class Client:
         )
 
     def get(self, bucket, key) -> Union[None, Any]:
+        @self.with_fallback
         def __get__(url):
             res = self.session.get(url)
             content = res.json()
@@ -292,6 +305,7 @@ class Client:
         )
 
     def put(self, bucket, key, data):
+        @self.with_fallback
         def __put__(url, data):
             res = self.session.put(url, json=data)
             content = res.json()
@@ -306,6 +320,7 @@ class Client:
         )
 
     def log_append(self, bucket, data):
+        @self.with_fallback
         def __post__(url, data):
             res = self.session.post(url, json=data)
             content = res.json()
@@ -318,6 +333,7 @@ class Client:
         return retry(10, lambda: __post__(f"http://{self.host}:80/log/{bucket}/", data))
 
     def log_drop(self, bucket, start):
+        @self.with_fallback
         def __delete__(url):
             res = self.session.delete(url)
             content = res.json()
@@ -332,6 +348,7 @@ class Client:
         )
 
     def log_fetch(self, bucket, start):
+        @self.with_fallback
         def __get__(url):
             res = self.session.get(url)
             content = res.json()
