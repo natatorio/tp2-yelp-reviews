@@ -72,7 +72,7 @@ def sink(
     batch_id,
     dedup,
 ):
-    name = node_name() + "sink"
+    name = node_name() + "_sink"
     with Filter(pipe_in) as consumer:
         consumer.run(
             tolerant(

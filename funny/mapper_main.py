@@ -47,10 +47,10 @@ def main():
                     dedup=dedupBussiness,
                 )
             bucket_name = get_my_ip()
-            dedup.db.log_drop(bucket_name, None)
+            dedup.db.log_drop(bucket_name + "_sink", None)
             dedup.db.log_drop(bucket_name + "_processed", None)
             dedup.db.delete(
-                bucket_name,
+                bucket_name + "_sink",
                 "state",
             )
             controlClient.batch_done(payload["session_id"], bucket_name)
