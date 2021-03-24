@@ -7,7 +7,7 @@ import logging
 
 logging.basicConfig()
 logger = logging.getLogger("WatchdogSideCar")
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 
 
 def main():
@@ -36,7 +36,7 @@ def main():
     time.sleep(10)  # Le doy tiempo a los procesos para levantar el flask
     leaderServer.trigger_election()
     while True:
-        time.sleep(3)
+        time.sleep(20)
         leaderServer.wait_for_election_resolution()
         if leaderServer.i_am_leader():
             leaderServer.healthcheck_workers()

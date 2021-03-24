@@ -10,7 +10,7 @@ import requests
 import logging
 
 HEARBEAT_TIMEOUT = int(os.environ.get("HEARBEAT_TIMEOUT", 2000))
-FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 6000))
+FINAL_ELECTION_TIMEOUT = int(os.environ.get("ELECTION_TIMEOUT", 10000))
 HOUSEKEEPING_TIMEOUT = int(os.environ.get("HOUSEKEEPING_TIMEOUT", 30000))
 HOUSEKEEPING_MAX_SIZE = int(os.environ.get("HOUSEKEEPING_MAX_SIZE", 100)) * 1024 * 1024
 
